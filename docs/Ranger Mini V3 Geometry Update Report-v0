@@ -1,0 +1,57 @@
+# Ranger Mini V3 Geometry Update Report
+
+Based on the verified specifications in the AgileX Ranger Mini V3 User Manual, we successfully updated the MuJoCo simulator to match the real robot's physical dimensions.
+
+## Files Modified
+1. `[MODIFY] simulation/ranger_mini_v3/ranger_mini_v3.xml`: Updated all physical dimensions, suspension link positions, steering pivot drops, and wheel geometries.
+2. `[MODIFY] simulation/ranger_mini_v3/robot.py`: Stripped hardcoded dimension constants from the class and updated the `_post_load()` method to dynamically parse the actual geometry directly from the MJCF. 
+3. `[NEW] simulation/ranger_mini_v3/validate_geometry.py`: Created a validation script to assert all ground-truths.
+
+## Values Changed
+
+### In `ranger_mini_v3.xml`
+- **Wheel Radius:** Changed from `0.165m` -> `0.100m` (matches the 200mm diameter given in the diagram).
+- **Wheel Width:** Left as `0.100m` (half-width `0.05m`) as it fits within the track constraints and aligns with standard Ranger Mini properties.
+- **Suspension Links (Wheelbase & Track Width):**
+  - Re-positioned from `X: ±0.2105`, `Y: ±0.300` -> `X: ±0.247`, `Y: ±0.182`
+  - *Why:* Adjusts the wheelbase to exactly `0.494m` and the track width to exactly `0.364m`.
+- **Steering Pivot Vertical Drop:**
+  - Increased drop from `Z: -0.1125` -> `Z: -0.1775`.
+  - *Why:* To maintain the verified `0.105m` ground clearance with the smaller `0.100m` wheels, ensuring the wheels contact the ground correctly at `Z = 0.0`.
+- **Camera/LiDAR Mounts:** 
+  - Moved from `X: 0.40m` -> `X: 0.36m`.
+  - *Why:* The chassis is `0.72m` long, so its front edge ends at `X = 0.36m`. The sensors are now properly mounted on the chassis boundary instead of floating in front of it.
+
+### In `robot.py`
+- Eliminated static constants `WHEEL_RADIUS`, `TRACK_WIDTH`, and `WHEELBASE`.
+- *Why:* To avoid duplicated geometry values! `robot.py` now parses `self.model.geom_size` and `self.model.body_pos` during `_post_load()`, making the MJCF the **single source of truth**.
+
+## Geometry Validation
+
+Running `validate_geometry.py` yields the exact verified dimensions:
+
+```text
+=== Ranger Mini V3 Geometry Validation ===
+
+[Extracted from MJCF]
+WHEELBASE:    0.4940 m (Expected: 0.494 m)
+TRACK_WIDTH:  0.3640 m (Expected: 0.364 m)
+WHEEL_RADIUS: 0.1000 m (Expected: 0.100 m)
+
+[Chassis Dimensions]
+Length: 0.720 m (Expected: 0.720 m)
+Width:  0.500 m (Expected: 0.500 m)
+Height: 0.345 m (Expected: 0.345 m)
+
+[Ground Clearance]
+Clearance: 0.1050 m (Expected: 0.1050 m)
+
+[Wheel Positions & Contact]
+ - fl_wheel_col: center=(X:0.2470, Y:0.1820, Z:0.1000), Ground Contact Z=-0.0000 m
+ - fr_wheel_col: center=(X:0.2470, Y:-0.1820, Z:0.1000), Ground Contact Z=-0.0000 m
+ - rl_wheel_col: center=(X:-0.2470, Y:0.1820, Z:0.1000), Ground Contact Z=-0.0000 m
+ - rr_wheel_col: center=(X:-0.2470, Y:-0.1820, Z:0.1000), Ground Contact Z=-0.0000 m
+```
+
+> [!TIP]
+> The robot's kinematic calculations (invoked via `robot.apply_command(...)`) automatically use these new dimensions without any extra manual synchronization.

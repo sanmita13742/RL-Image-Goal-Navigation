@@ -191,65 +191,78 @@ class RobotBase(abc.ABC):
 # Utility: Ackermann geometry
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _get_wheel_ik(x: float, y: float, v_linear: float, v_lateral: float, v_angular: float) -> tuple[float, float]:
+def normalize_angle(angle: float) -> float:
+    """Normalize angle to [-pi, pi]."""
+    return (angle + math.pi) % (2 * math.pi) - math.pi
+
+def _get_continuous_wheel_ik(
+    x: float, y: float, 
+    v_linear: float, v_lateral: float, v_angular: float, 
+    current_angle: float
+) -> tuple[float, float]:
     """Compute the required steering angle and drive speed (m/s) for a wheel at (x,y).
     
-    Returns angle with sign convention for axis="0 0 -1" (Z-down steering).
+    Selects between forward and reverse driving to minimize the change from current_angle.
+    Returns (target_angle, target_speed) with sign convention for axis="0 0 -1" (Z-down steering).
     """
     vx = v_linear - v_angular * y
     vy = v_lateral + v_angular * x
     speed = math.hypot(vx, vy)
+    
     if speed < 1e-6:
-        return 0.0, 0.0
+        # If not moving, keep the current angle and zero speed
+        return current_angle, 0.0
+        
+    # The physical steering direction (relative to robot +X)
+    target_fwd = math.atan2(vy, vx)
+    target_rev = normalize_angle(target_fwd + math.pi)
     
-    angle = math.atan2(vy, vx)
-    # If the required angle is obtuse, steer the opposite way and drive backwards
-    if angle > math.pi / 2:
-        angle -= math.pi
-        speed = -speed
-    elif angle < -math.pi / 2:
-        angle += math.pi
-        speed = -speed
+    # Since Z-down steering convention negates the physical angle in MuJoCo:
+    # Physical angle theta corresponds to joint angle -theta.
+    # We un-negate the current joint angle to work in physical coordinates.
+    phys_curr = -current_angle
     
-    # Negate angle for axis="0 0 -1" steering convention
-    return -angle, speed
+    # Calculate angular distance to both solutions
+    diff_fwd = normalize_angle(target_fwd - phys_curr)
+    diff_rev = normalize_angle(target_rev - phys_curr)
+    
+    # Select the solution with the smallest rotation
+    if abs(diff_fwd) <= abs(diff_rev):
+        best_phys = phys_curr + diff_fwd
+        best_speed = speed
+    else:
+        best_phys = phys_curr + diff_rev
+        best_speed = -speed
+        
+    # Convert back to joint coordinates (Z-down negates physical angle)
+    return -best_phys, best_speed
 
-def ackermann_angles(
-    v_angular: float,
-    v_linear:  float,
-    wheelbase: float,
-    track_width: float,
-    max_steer_rad: float = math.radians(35),
-    v_lateral: float = 0.0,
-) -> tuple[float, float, float, float]:
-    """Compute per-wheel steering angles (FL, FR, RL, RR) using exact 4WS inverse kinematics."""
-    half_l, half_t = wheelbase / 2.0, track_width / 2.0
-    fl_a, _ = _get_wheel_ik( half_l,  half_t, v_linear, v_lateral, v_angular)
-    fr_a, _ = _get_wheel_ik( half_l, -half_t, v_linear, v_lateral, v_angular)
-    rl_a, _ = _get_wheel_ik(-half_l,  half_t, v_linear, v_lateral, v_angular)
-    rr_a, _ = _get_wheel_ik(-half_l, -half_t, v_linear, v_lateral, v_angular)
+def compute_4ws_ik(
+    cmd: DriveCommand,
+    dims: RobotDimensions,
+    current_angles: tuple[float, float, float, float]
+) -> tuple[tuple[float, float, float, float], tuple[float, float, float, float]]:
+    """Compute per-wheel steering angles (rad) and drive speeds (rad/s) using continuous 4WS IK.
     
-    clamp = lambda a: max(-max_steer_rad, min(max_steer_rad, a))
-    return clamp(fl_a), clamp(fr_a), clamp(rl_a), clamp(rr_a)
-
-def ackermann_wheel_speeds(
-    v_linear:   float,
-    v_angular:  float,
-    wheel_radius: float,
-    wheelbase:    float,
-    track_width:  float,
-    v_lateral:  float = 0.0,
-) -> tuple[float, float, float, float]:
-    """Compute per-wheel drive speeds in rad/s (FL, FR, RL, RR) using exact 4WS inverse kinematics."""
-    half_l, half_t = wheelbase / 2.0, track_width / 2.0
-    _, fl_s = _get_wheel_ik( half_l,  half_t, v_linear, v_lateral, v_angular)
-    _, fr_s = _get_wheel_ik( half_l, -half_t, v_linear, v_lateral, v_angular)
-    _, rl_s = _get_wheel_ik(-half_l,  half_t, v_linear, v_lateral, v_angular)
-    _, rr_s = _get_wheel_ik(-half_l, -half_t, v_linear, v_lateral, v_angular)
+    Returns:
+        angles: (fl_a, fr_a, rl_a, rr_a)
+        speeds: (fl_s, fr_s, rl_s, rr_s)
+    """
+    half_l = dims.wheelbase / 2.0
+    half_t = dims.track_width / 2.0
     
-    return (
-        fl_s / wheel_radius,
-        fr_s / wheel_radius,
-        rl_s / wheel_radius,
-        rr_s / wheel_radius,
+    curr_fl, curr_fr, curr_rl, curr_rr = current_angles
+    
+    fl_a, fl_v = _get_continuous_wheel_ik( half_l,  half_t, cmd.v_linear, cmd.v_lateral, cmd.v_angular, curr_fl)
+    fr_a, fr_v = _get_continuous_wheel_ik( half_l, -half_t, cmd.v_linear, cmd.v_lateral, cmd.v_angular, curr_fr)
+    rl_a, rl_v = _get_continuous_wheel_ik(-half_l,  half_t, cmd.v_linear, cmd.v_lateral, cmd.v_angular, curr_rl)
+    rr_a, rr_v = _get_continuous_wheel_ik(-half_l, -half_t, cmd.v_linear, cmd.v_lateral, cmd.v_angular, curr_rr)
+    
+    speeds = (
+        fl_v / dims.wheel_radius,
+        fr_v / dims.wheel_radius,
+        rl_v / dims.wheel_radius,
+        rr_v / dims.wheel_radius,
     )
+    
+    return (fl_a, fr_a, rl_a, rr_a), speeds
