@@ -1,38 +1,174 @@
-# MINav
+# MINav Vision Module
 
-Reimplementation scaffold for MINav — a small offline RL pipeline for image-goal
-navigation. Paper: "120 Minutes and a Laptop: Minimalist Image-goal Navigation via
-Unsupervised Exploration and Offline RL" (arXiv:2603.26441).
+This package implements the **perception module** for the MINav project.
 
-Idea: let a robot wander around a room on its own using pink noise, encode what it
-saw with a frozen DINOv3, and train a goal-conditioned policy offline with TD3+BC.
-No human labeling, no online interaction, runs on a laptop in under 2 hours.
+It provides a frozen **DINOv3** visual encoder together with the **Spatial Standard Deviation (SSD)** based goal filtering described in the MINav paper.
 
-## Setup
+The module is designed to be imported by other components (Dataset Builder, RL, Evaluation) without requiring them to know any implementation details.
+
+---
+
+# Features
+
+- Frozen pretrained DINOv3 encoder
+- Automatic image preprocessing
+- Visual representation extraction (φ(o))
+- SSD-based goal filtering
+- Batch processing support
+- Simple Python package interface
+
+---
+
+# Installation
+
+Install the required packages.
 
 ```bash
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-python scripts/test_install.py
+pip install -r vision/requirements.txt
 ```
 
-## Pipeline
+---
+
+# Usage
+
+Import the encoder.
+
+```python
+from vision import DINOEncoder
+```
+
+Create the encoder.
+
+```python
+encoder = DINOEncoder()
+```
+
+Process a single image.
+
+```python
+result = encoder.process_image("office.jpg")
+```
+
+Access the outputs.
+
+```python
+print(result.visual_representation.shape)
+print(result.ssd)
+print(result.valid_goal)
+```
+
+---
+
+# Batch Processing
+
+```python
+from vision import DINOEncoder
+
+encoder = DINOEncoder()
+
+images = [
+    "frame1.jpg",
+    "frame2.jpg",
+    "frame3.jpg"
+]
+
+results = encoder.process_batch(images)
+
+for result in results:
+    print(result.ssd, result.valid_goal)
+```
+
+---
+
+# Output
+
+`process_image()` returns a `PerceptionResult` object.
+
+```python
+result.image_path
+result.visual_representation
+result.ssd
+result.valid_goal
+```
+
+### Description
+
+| Field | Description |
+|-------|-------------|
+| `image_path` | Input image path |
+| `visual_representation` | DINOv3 visual feature φ(o) |
+| `ssd` | Spatial Standard Deviation score |
+| `valid_goal` | Whether the image passes SSD goal filtering |
+
+---
+
+# Pipeline
 
 ```
-collect.py -> encode.py -> train.py (uses relabel.py) -> fqe_select.py -> deploy.py
+Image
+    │
+Resize (448 × 784)
+    │
+Frozen DINOv3
+    │
+Visual Representation φ(o)
+    │
+Patch Embeddings
+    │
+14 × 25 Center Crop
+    │
+SSD Computation
+    │
+Goal Decision
 ```
 
-1. `collect.py` — drive the robot around with random (pink noise) actions, save frames + actions
-2. `encode.py` — run frames through DINOv3, drop blank/featureless goal candidates
-3. `train.py` — offline TD3+BC training with hindsight goal relabeling
-4. `fqe_select.py` — pick the best checkpoint without testing on the real robot
-5. `deploy.py` — run the policy live
+---
 
-See `docs/EXTRACTION.md` for the math (state/goal/reward, TD3+BC, relabeling, FQE)
-and `docs/ARCHITECTURE.md` for how the pieces connect.
+# Model Configuration
 
-## Status
+| Parameter | Value |
+|----------|-------|
+| Model | DINOv3 ViT-S/16 |
+| Image Size | 448 × 784 |
+| Patch Grid | 28 × 49 |
+| Center Crop | 14 × 25 |
+| SSD Threshold | 0.02 |
 
-Docs + configs are complete. `scripts/*.py` are working stubs — the noise
-generation and a dummy TD3+BC step actually run, but the real
-train/encode/deploy loops need to be wired up to your robot and dataset format.
+---
+
+# Notes
+
+- The DINOv3 encoder is **frozen** during inference (`eval()` mode with gradients disabled).
+- The SSD implementation follows the validated **Method 2** used during development.
+- The module automatically performs image preprocessing and feature extraction.
+- Consumers of this package should only use the public API (`DINOEncoder`) and should not rely on internal helper methods.
+
+---
+
+# Example
+
+```python
+from vision import DINOEncoder
+
+encoder = DINOEncoder()
+
+result = encoder.process_image("office.jpg")
+
+if result.valid_goal:
+    feature = result.visual_representation
+    print("Valid goal found!")
+else:
+    print("Image rejected.")
+```
+
+---
+
+# For Developers
+
+The recommended import is:
+
+```python
+from vision import DINOEncoder
+```
+
+Avoid importing directly from `vision.encoder` unless you are modifying the perception module itself. This keeps the public interface stable even if the internal implementation changes.
