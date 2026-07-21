@@ -38,6 +38,7 @@ import mujoco
 class DriveCommand:
     """Unified motion command fed to apply_command()."""
     v_linear:  float = 0.0   # m/s  (+ forward)
+    v_lateral: float = 0.0   # m/s  (+ left, crab walk)
     v_angular: float = 0.0   # rad/s (+ turn left, CCW)
 
 
@@ -190,47 +191,46 @@ class RobotBase(abc.ABC):
 # Utility: Ackermann geometry
 # ─────────────────────────────────────────────────────────────────────────────
 
+def _get_wheel_ik(x: float, y: float, v_linear: float, v_lateral: float, v_angular: float) -> tuple[float, float]:
+    """Compute the required steering angle and drive speed (m/s) for a wheel at (x,y).
+    
+    Returns angle with sign convention for axis="0 0 -1" (Z-down steering).
+    """
+    vx = v_linear - v_angular * y
+    vy = v_lateral + v_angular * x
+    speed = math.hypot(vx, vy)
+    if speed < 1e-6:
+        return 0.0, 0.0
+    
+    angle = math.atan2(vy, vx)
+    # If the required angle is obtuse, steer the opposite way and drive backwards
+    if angle > math.pi / 2:
+        angle -= math.pi
+        speed = -speed
+    elif angle < -math.pi / 2:
+        angle += math.pi
+        speed = -speed
+    
+    # Negate angle for axis="0 0 -1" steering convention
+    return -angle, speed
+
 def ackermann_angles(
     v_angular: float,
     v_linear:  float,
     wheelbase: float,
     track_width: float,
     max_steer_rad: float = math.radians(35),
+    v_lateral: float = 0.0,
 ) -> tuple[float, float, float, float]:
-    """
-    Compute per-wheel steering angles and drive speeds for an Ackermann vehicle.
-
-    For pure differential (v_angular != 0, v_linear == 0) we use a virtual
-    turning-radius approximation so the robot can spin in place.
-
-    Returns
-    -------
-    fl_angle, fr_angle, rl_angle, rr_angle  (radians, + = steer left)
-    """
-    if abs(v_angular) < 1e-6:
-        # Straight line
-        return 0.0, 0.0, 0.0, 0.0
-
-    if abs(v_linear) < 1e-6:
-        # In-place spin — use small virtual radius
-        R = wheelbase * 0.5
-    else:
-        R = v_linear / v_angular   # signed turning radius
-
-    # Ackermann inner / outer angles
-    # Front wheels steer, rear wheels counter-steer for 4WS
-    try:
-        fl_angle = math.atan2(wheelbase, R - track_width / 2)
-        fr_angle = math.atan2(wheelbase, R + track_width / 2)
-        rl_angle = -math.atan2(wheelbase * 0.5, R - track_width / 2)
-        rr_angle = -math.atan2(wheelbase * 0.5, R + track_width / 2)
-    except ZeroDivisionError:
-        fl_angle = fr_angle = rl_angle = rr_angle = 0.0
-
-    # Clamp
+    """Compute per-wheel steering angles (FL, FR, RL, RR) using exact 4WS inverse kinematics."""
+    half_l, half_t = wheelbase / 2.0, track_width / 2.0
+    fl_a, _ = _get_wheel_ik( half_l,  half_t, v_linear, v_lateral, v_angular)
+    fr_a, _ = _get_wheel_ik( half_l, -half_t, v_linear, v_lateral, v_angular)
+    rl_a, _ = _get_wheel_ik(-half_l,  half_t, v_linear, v_lateral, v_angular)
+    rr_a, _ = _get_wheel_ik(-half_l, -half_t, v_linear, v_lateral, v_angular)
+    
     clamp = lambda a: max(-max_steer_rad, min(max_steer_rad, a))
-    return clamp(fl_angle), clamp(fr_angle), clamp(rl_angle), clamp(rr_angle)
-
+    return clamp(fl_a), clamp(fr_a), clamp(rl_a), clamp(rr_a)
 
 def ackermann_wheel_speeds(
     v_linear:   float,
@@ -238,30 +238,18 @@ def ackermann_wheel_speeds(
     wheel_radius: float,
     wheelbase:    float,
     track_width:  float,
+    v_lateral:  float = 0.0,
 ) -> tuple[float, float, float, float]:
-    """
-    Compute per-wheel drive speeds (rad/s) for an Ackermann vehicle.
-    Front-left, Front-right, Rear-left, Rear-right order.
-    """
-    if abs(v_angular) < 1e-6:
-        w = v_linear / wheel_radius
-        return w, w, w, w
-
-    if abs(v_linear) < 1e-6:
-        R = wheelbase * 0.5
-    else:
-        R = v_linear / v_angular
-
-    half_t = track_width / 2.0
-    half_l = wheelbase   / 2.0
-
-    def speed(rx: float, ry: float) -> float:
-        r_wheel = math.hypot(rx, ry)
-        v_wheel = v_angular * r_wheel
-        return v_wheel / wheel_radius
-
-    fl = speed(half_l,  R - half_t)
-    fr = speed(half_l,  R + half_t)
-    rl = speed(-half_l, R - half_t)
-    rr = speed(-half_l, R + half_t)
-    return fl, fr, rl, rr
+    """Compute per-wheel drive speeds in rad/s (FL, FR, RL, RR) using exact 4WS inverse kinematics."""
+    half_l, half_t = wheelbase / 2.0, track_width / 2.0
+    _, fl_s = _get_wheel_ik( half_l,  half_t, v_linear, v_lateral, v_angular)
+    _, fr_s = _get_wheel_ik( half_l, -half_t, v_linear, v_lateral, v_angular)
+    _, rl_s = _get_wheel_ik(-half_l,  half_t, v_linear, v_lateral, v_angular)
+    _, rr_s = _get_wheel_ik(-half_l, -half_t, v_linear, v_lateral, v_angular)
+    
+    return (
+        fl_s / wheel_radius,
+        fr_s / wheel_radius,
+        rl_s / wheel_radius,
+        rr_s / wheel_radius,
+    )

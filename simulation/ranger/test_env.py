@@ -48,11 +48,11 @@ FORWARD_SPEED = 1.5
 ANGULAR_SPEED = 0.8
 
 KEY_MAP = {
-    GLFW_KEY_UP:    DriveCommand( FORWARD_SPEED,  0.0),
-    GLFW_KEY_DOWN:  DriveCommand(-FORWARD_SPEED,  0.0),
-    GLFW_KEY_LEFT:  DriveCommand( 0.0,            ANGULAR_SPEED),
-    GLFW_KEY_RIGHT: DriveCommand( 0.0,           -ANGULAR_SPEED),
-    GLFW_KEY_ENTER: DriveCommand( 0.0,            0.0),
+    GLFW_KEY_UP:    DriveCommand(v_linear= FORWARD_SPEED, v_angular= 0.0),
+    GLFW_KEY_DOWN:  DriveCommand(v_linear=-FORWARD_SPEED, v_angular= 0.0),
+    GLFW_KEY_LEFT:  DriveCommand(v_linear= 0.0,           v_angular= ANGULAR_SPEED),
+    GLFW_KEY_RIGHT: DriveCommand(v_linear= 0.0,           v_angular=-ANGULAR_SPEED),
+    GLFW_KEY_ENTER: DriveCommand(v_linear= 0.0,           v_angular= 0.0),
 }
 
 

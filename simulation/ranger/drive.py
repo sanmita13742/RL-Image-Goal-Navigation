@@ -50,11 +50,11 @@ FORWARD_SPEED  = 1.5    # m/s
 ANGULAR_SPEED  = 0.8    # rad/s
 
 KEY_MAP = {
-    GLFW_KEY_UP:    DriveCommand( FORWARD_SPEED,  0.0),
-    GLFW_KEY_DOWN:  DriveCommand(-FORWARD_SPEED,  0.0),
-    GLFW_KEY_LEFT:  DriveCommand( 0.0,            ANGULAR_SPEED),
-    GLFW_KEY_RIGHT: DriveCommand( 0.0,           -ANGULAR_SPEED),
-    GLFW_KEY_ENTER: DriveCommand( 0.0,            0.0),
+    GLFW_KEY_UP:    DriveCommand(v_linear= FORWARD_SPEED, v_angular= 0.0),
+    GLFW_KEY_DOWN:  DriveCommand(v_linear=-FORWARD_SPEED, v_angular= 0.0),
+    GLFW_KEY_LEFT:  DriveCommand(v_linear= 0.0,           v_angular= ANGULAR_SPEED),
+    GLFW_KEY_RIGHT: DriveCommand(v_linear= 0.0,           v_angular=-ANGULAR_SPEED),
+    GLFW_KEY_ENTER: DriveCommand(v_linear= 0.0,           v_angular= 0.0),
 }
 
 
@@ -74,7 +74,7 @@ def on_key(keycode: int) -> None:
         return
     if keycode in KEY_MAP:
         preset = KEY_MAP[keycode]
-        cmd = DriveCommand(preset.v_linear, preset.v_angular * steer_scale)
+        cmd = DriveCommand(v_linear=preset.v_linear, v_angular=preset.v_angular * steer_scale)
 
 
 def print_hud(robot: RangerRobot) -> None:
