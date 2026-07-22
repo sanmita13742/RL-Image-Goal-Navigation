@@ -2,7 +2,7 @@
 
 Welcome to the Ranger Mini V3 Reinforcement Learning and Simulation project! This repository contains a complete pipeline for simulating the AgileX Ranger Mini V3 robot using MuJoCo, specifically focusing on its Ackermann 4-wheel steering kinematics, data collection via random exploration, and dataset analysis tools.
 
-## 🛠 Setup Guide
+## Setup Guide
 
 Follow these steps to pull the repository and set up your local environment.
 
@@ -34,7 +34,7 @@ pip install -r requirements.txt
 
 ---
 
-## 🚀 Running the Simulations (Walkthrough)
+## Running the Simulations (Walkthrough)
 
 The core simulation scripts are located in the `simulation/ranger_mini_v3/` directory. Ensure your terminal's current working directory is set to this folder or you are running them via their relative paths.
 
@@ -69,7 +69,7 @@ A comprehensive analysis suite to evaluate the quality of the dataset collected 
 
 ---
 
-## 📚 Documentation Overview
+## Documentation Overview
 
 The `docs/` folder contains essential engineering reports and architectural decisions made throughout the project's lifecycle:
 
