@@ -17,8 +17,8 @@ We replaced this with a **continuous shortest-path algorithm**:
 4. We choose the target angle requiring the smallest physical rotation.
 
 ## Implementation Updates
-- `[MODIFY] simulation/robot_base.py`: Deprecated the stateless `ackermann_angles` and `ackermann_wheel_speeds` functions. Replaced them with the unified, state-aware `compute_4ws_ik(cmd, dims, current_angles)` function.
-- `[MODIFY] simulation/ranger_mini_v3/robot.py`: Modified `apply_command()` to dynamically fetch the sensor positions of the steering servos, enabling closed-loop setpoint generation.
+- `robot_base.py`: Deprecated the stateless `ackermann_angles` and `ackermann_wheel_speeds` functions. Replaced them with the unified, state-aware `compute_4ws_ik(cmd, dims, current_angles)` function.
+- `robot.py`: Modified `apply_command()` to dynamically fetch the sensor positions of the steering servos, enabling closed-loop setpoint generation.
 
 ## Validation Results
 

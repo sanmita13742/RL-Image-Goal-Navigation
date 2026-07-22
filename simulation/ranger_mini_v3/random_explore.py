@@ -39,7 +39,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from robot import RangerMiniV3Robot
 from robot_base import DriveCommand
 from test_env import build_world_xml
-from exploration_policies import LinearExploration, WhiteNoiseExploration, OUExploration, TruePinkExploration, UniformPinkExploration
+from exploration_policies import PrimitiveExplorationPolicy
 
 def euler_from_quaternion(w, x, y, z):
     """
@@ -144,13 +144,8 @@ def main():
         frame_idx = 0
         start_time = time.time()
         
-        # Initialize exploration policy
-        # Options: WhiteNoiseExploration, LinearExploration, OUExploration, TruePinkExploration, UniformPinkExploration (best)
-        policy = UniformPinkExploration(
-            CONTROL_FREQ,
-            v_range=(0.0, 2.0),         # Spec max: 2.0 m/s
-            w_range=(-1.0, 1.0),
-        )
+        # Initialize exploration policy with motion primitives and uniform pink noise (beta=1)
+        policy = PrimitiveExplorationPolicy(CONTROL_FREQ, beta=1)
         
         # Optional live viewer
         viewer = None
@@ -174,8 +169,8 @@ def main():
                 _, _, yaw = euler_from_quaternion(qw, qx, qy, qz)
     
                 # 3. Action Selection (using our chosen policy)
+                cmd, prim = policy.get_action(depth_img, pos_x, pos_y, yaw)
                 min_depth = np.min(depth_img)
-                cmd = policy.get_action(min_depth)
                 
                 # Extract velocities for logging
                 current_v_linear = cmd.v_linear
@@ -208,8 +203,8 @@ def main():
     
                 # CLI Feedback
                 if frame_idx % 10 == 0:
-                    print(f"  [Log] Frame {frame_idx:04d}/{MAX_EPISODE_STEPS} | "
-                          f"Action: (v={current_v_linear:+.2f}, w={current_v_angular:+.2f}) | "
+                    print(f"  [Log] Frame {frame_idx:04d}/{MAX_EPISODE_STEPS} | Prim: {prim.name} | "
+                          f"Action: (v={current_v_linear:+.2f}, lat={current_v_lateral:+.2f}, w={current_v_angular:+.2f}) | "
                           f"Pose: (x={pos_x:+.2f}, y={pos_y:+.2f}, yaw={yaw:+.2f}) | MinDepth: {min_depth:.2f}m")
     
                 # 5. Physics steps
