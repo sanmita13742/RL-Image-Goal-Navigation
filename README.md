@@ -21,35 +21,47 @@ The module is designed to be imported by other components (Dataset Builder, RL, 
 
 # Installation
 
-Install the required packages.
+This vision module is currently maintained on the **`vision` branch**.
+
+After cloning the repository, switch to the `vision` branch:
 
 ```bash
-pip install -r vision/requirements.txt
+git clone https://github.com/sanmita13742/RL-Image-Goal-Navigation.git
+cd RL-Image-Goal-Navigation
+git checkout vision
+```
+
+Install the dependencies from the `requirements.txt` file located in the current directory:
+
+```bash
+pip install -r requirements.txt
 ```
 
 ---
 
 # Usage
 
-Import the encoder.
+The encoder is provided directly by the vision module.
+
+Import the encoder:
 
 ```python
-from vision import DINOEncoder
+from encoder_v2 import DINOEncoder
 ```
 
-Create the encoder.
+Create the encoder:
 
 ```python
 encoder = DINOEncoder()
 ```
 
-Process a single image.
+Process a single image:
 
 ```python
 result = encoder.process_image("office.jpg")
 ```
 
-Access the outputs.
+Access the outputs:
 
 ```python
 print(result.visual_representation.shape)
@@ -62,7 +74,7 @@ print(result.valid_goal)
 # Batch Processing
 
 ```python
-from vision import DINOEncoder
+from encoder_v2 import DINOEncoder
 
 encoder = DINOEncoder()
 
@@ -93,18 +105,18 @@ result.valid_goal
 
 ### Description
 
-| Field | Description |
-|-------|-------------|
-| `image_path` | Input image path |
-| `visual_representation` | DINOv3 visual feature φ(o) |
-| `ssd` | Spatial Standard Deviation score |
-| `valid_goal` | Whether the image passes SSD goal filtering |
+| Field                   | Description                                 |
+| ----------------------- | ------------------------------------------- |
+| `image_path`            | Input image path                            |
+| `visual_representation` | DINOv3 visual feature φ(o)                  |
+| `ssd`                   | Spatial Standard Deviation score            |
+| `valid_goal`            | Whether the image passes SSD goal filtering |
 
 ---
 
 # Pipeline
 
-```
+```text
 Image
     │
 Resize (448 × 784)
@@ -126,13 +138,13 @@ Goal Decision
 
 # Model Configuration
 
-| Parameter | Value |
-|----------|-------|
-| Model | DINOv3 ViT-S/16 |
-| Image Size | 448 × 784 |
-| Patch Grid | 28 × 49 |
-| Center Crop | 14 × 25 |
-| SSD Threshold | 0.02 |
+| Parameter     | Value           |
+| ------------- | --------------- |
+| Model         | DINOv3 ViT-S/16 |
+| Image Size    | 448 × 784       |
+| Patch Grid    | 28 × 49         |
+| Center Crop   | 14 × 25         |
+| SSD Threshold | 0.02            |
 
 ---
 
@@ -148,7 +160,7 @@ Goal Decision
 # Example
 
 ```python
-from vision import DINOEncoder
+from encoder_v2 import DINOEncoder
 
 encoder = DINOEncoder()
 
@@ -168,7 +180,7 @@ else:
 The recommended import is:
 
 ```python
-from vision import DINOEncoder
+from encoder_v2 import DINOEncoder
 ```
 
-Avoid importing directly from `vision.encoder` unless you are modifying the perception module itself. This keeps the public interface stable even if the internal implementation changes.
+Avoid modifying or relying on internal helper methods unless you are modifying the perception module itself. This keeps the public interface stable even if the internal implementation changes.
