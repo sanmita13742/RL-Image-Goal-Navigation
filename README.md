@@ -34,5 +34,5 @@ and `docs/ARCHITECTURE.md` for how the pieces connect.
 ## Status
 
 Docs + configs are complete. `scripts/*.py` are working stubs — the noise
-generation and a dummy TD3+BC step actually run, but the real
+generation and a dummy TD3+BC step actually run, but the real 
 train/encode/deploy loops need to be wired up to your robot and dataset format.
