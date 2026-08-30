@@ -1,0 +1,32 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Editor
+.vscode/
+.idea/
+
+# Datasets & Logs
+dataset/
+data/
+runs/
+analysis_output*/
+comparison/
+whitenoise/
+*.png
+*.jpg
+*.csv
+*.mp4
+*.log
+
+# Models & Data Files
+*.pt
+*.npy
+*.parquet
+*.npz
+
+# Artifacts & ZIPs
+*.zip
+*.tar.gz
+*.pdf

@@ -1,0 +1,118 @@
+<mujoco model="scout_mini">
+
+  <compiler angle="radian" meshdir="meshes/"/>
+
+  <option timestep="0.004" integrator="RK4" gravity="0 0 -9.81"/>
+
+  <default>
+    <joint damping="0.5"/>
+    <geom friction="1.0 0.005 0.0001" condim="3"/>
+  </default>
+
+  <asset>
+    <texture name="floor_tex" type="2d" builtin="checker"
+             rgb1="0.3 0.3 0.3" rgb2="0.4 0.4 0.4" width="512" height="512"/>
+    <material name="floor_mat" texture="floor_tex" texrepeat="8 8"/>
+    <material name="chassis_mat" rgba="0.22 0.22 0.22 1"/>
+    <material name="wheel_mat"   rgba="0.15 0.15 0.15 1"/>
+    <material name="cam_mat"     rgba="0.9 0.2 0.1 1"/>
+  </asset>
+
+  <worldbody>
+
+    <!-- Ground -->
+    <geom name="floor" type="plane" size="20 20 0.1"
+          material="floor_mat" friction="1.0 0.005 0.0001"/>
+
+    <!-- Lighting -->
+    <light name="sun" pos="0 0 6" dir="0 0 -1"
+           diffuse="0.9 0.9 0.9" specular="0.3 0.3 0.3" castshadow="true"/>
+
+    <!-- ─────────────────────────── ROBOT ─────────────────────────── -->
+    <body name="base_link" pos="0 0 0.20">
+
+      <!-- 6-DOF free joint so the body can move in the world -->
+      <freejoint name="root"/>
+
+      <!-- Inertia from scout_mini.urdf inertial_link (60 kg) -->
+      <inertial pos="0 0 0" mass="60"
+                fullinertia="2.288641 5.103976 3.431465 0 0 0"/>
+
+      <!-- Chassis collision box  (half-sizes: 0.4625 × 0.19 × 0.105) -->
+      <geom name="chassis" type="box"
+            size="0.4625 0.19 0.105"
+            material="chassis_mat"/>
+
+      <!-- ── Front-Left Wheel ─────────────────────────────────────── -->
+      <!-- joint origin from URDF: xyz="0.2319755 0.2082515 -0.100998" rpy="-1.57 0 0" -->
+      <!-- rpy "-1.57 0 0" means the local Z of the URDF joint (spin axis)
+           maps to world -Y → in MuJoCo we spin about local Y with axis "0 1 0" -->
+      <body name="front_left_wheel" pos="0.2320 0.2083 -0.1010">
+        <joint name="front_left_wheel" type="hinge" axis="0 1 0"
+               pos="0 0 0" limited="false"/>
+        <inertial pos="0 0 0" mass="3"
+                  fullinertia="0.7171 0.7171 0.1361 0 0 0"/>
+        <!-- Collision cylinder -->
+        <geom name="fl_col" type="cylinder" size="0.08 0.0325"
+              euler="1.5708 0 0" material="wheel_mat"/>
+      </body>
+
+      <!-- ── Rear-Left Wheel ──────────────────────────────────────── -->
+      <body name="rear_left_wheel" pos="-0.2320 0.2083 -0.1010">
+        <joint name="rear_left_wheel" type="hinge" axis="0 1 0"
+               pos="0 0 0" limited="false"/>
+        <inertial pos="0 0 0" mass="3"
+                  fullinertia="0.7171 0.7171 0.1361 0 0 0"/>
+        <geom name="rl_col" type="cylinder" size="0.08 0.0325"
+              euler="1.5708 0 0" material="wheel_mat"/>
+      </body>
+
+      <!-- ── Front-Right Wheel ────────────────────────────────────── -->
+      <!-- URDF rpy="1.57 0 0" → same hinge axis, mirrored side -->
+      <body name="front_right_wheel" pos="0.2320 -0.2083 -0.1000">
+        <joint name="front_right_wheel" type="hinge" axis="0 1 0"
+               pos="0 0 0" limited="false"/>
+        <inertial pos="0 0 0" mass="3"
+                  fullinertia="0.7171 0.7171 0.1361 0 0 0"/>
+        <geom name="fr_col" type="cylinder" size="0.08 0.0325"
+              euler="1.5708 0 0" material="wheel_mat"/>
+      </body>
+
+      <!-- ── Rear-Right Wheel ─────────────────────────────────────── -->
+      <body name="rear_right_wheel" pos="-0.2320 -0.2083 -0.1000">
+        <joint name="rear_right_wheel" type="hinge" axis="0 1 0"
+               pos="0 0 0" limited="false"/>
+        <inertial pos="0 0 0" mass="3"
+                  fullinertia="0.7171 0.7171 0.1361 0 0 0"/>
+        <geom name="rr_col" type="cylinder" size="0.08 0.0325"
+              euler="1.5708 0 0" material="wheel_mat"/>
+      </body>
+
+      <!-- ── Front RGB Camera ─────────────────────────────────────── -->
+      <!-- Mounted at (0.2, 0, 0.2) from base_link, looking forward (-X in cam frame = +X world) -->
+      <body name="camera_link" pos="0.2 0 0.2">
+        <!-- Small visual marker so you can see it in the viewer -->
+        <geom name="cam_marker" type="box" size="0.025 0.04 0.015"
+              material="cam_mat" contype="0" conaffinity="0"/>
+        <!-- Camera looks in the +X direction of the robot (MuJoCo cam looks in -Z by default,
+             so we rotate it 90° around Y to make it look forward) -->
+        <camera name="front_cam" fovy="80" euler="0 1.5708 0"/>
+      </body>
+
+    </body><!-- /base_link -->
+
+  </worldbody>
+
+  <!-- ─────────────────────────── ACTUATORS ─────────────────────────────
+       4 velocity actuators, one per wheel.
+       kv=40 is the proportional gain (rad/s error → N·m torque).
+       Tune higher if wheels feel sluggish.
+  ──────────────────────────────────────────────────────────────────────── -->
+  <actuator>
+    <velocity name="act_fl" joint="front_left_wheel"  kv="40"/>
+    <velocity name="act_rl" joint="rear_left_wheel"   kv="40"/>
+    <velocity name="act_fr" joint="front_right_wheel" kv="40"/>
+    <velocity name="act_rr" joint="rear_right_wheel"  kv="40"/>
+  </actuator>
+
+</mujoco>

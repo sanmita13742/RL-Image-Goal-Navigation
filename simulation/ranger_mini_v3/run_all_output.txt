@@ -1,0 +1,21 @@
+﻿============================================================
+FINAL RESOLVED CONFIGURATION
+============================================================
+DINOv3:
+  Model: vit_small_patch16_dinov3
+  Input: 448 x 784
+  Frozen: True (implemented in python)
+Representation:
+python.exe : Traceback (most recent call last):
+At line:1 char:1
++ & "C:\Users\sanmi\Desktop\projects\RL\MuJoCo\.venv\Scripts\python.exe ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (Traceback (most recent call last)::String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  File "C:\Users\sanmi\Desktop\projects\RL\simulation\ranger_mini_v3\scripts\run_all.py", line 120, in <module>
+    main()
+  File "C:\Users\sanmi\Desktop\projects\RL\simulation\ranger_mini_v3\scripts\run_all.py", line 41, in main
+    print(f"  Pooling: {cfg['representation']['pooling']} (IMPLEMENTATION CHOICE)")
+                        ~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+KeyError: 'pooling'

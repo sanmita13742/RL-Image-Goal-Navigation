@@ -102,7 +102,7 @@ def build_frame_index(session_dir, max_frames=None):
 
     frames = []
     for seg_dir in seg_dirs:
-        csv_path = seg_dir / "segment.csv"
+        csv_path = seg_dir / "observations.csv"
         if not csv_path.exists():
             print(f"  WARNING: {csv_path} not found, skipping")
             continue
@@ -1092,63 +1092,58 @@ def run_pipeline(session_dir, out_dir, batch_size, max_frames=None, label="FULL"
 
 def main():
     parser = argparse.ArgumentParser(description="MINav Final Hindsight Dataset")
-    parser.add_argument("--session",    required=True)
-    parser.add_argument("--out",        default="data/processed")
-    parser.add_argument("--batch_size", type=int, default=16)
-    parser.add_argument("--smoke",      action="store_true",
-                        help="Run 100-frame smoke test")
-    parser.add_argument("--full",       action="store_true",
-                        help="Run full 72k dataset (auto-runs smoke first)")
+    parser.add_argument("--config", default="configs/pipeline.yaml")
+    parser.add_argument("--run-dir", required=True)
+    parser.add_argument("--smoke", action="store_true")
     args = parser.parse_args()
 
-    session_dir = Path(args.session)
-    out_base    = Path(args.out)
+    run_dir = Path(args.run_dir).resolve()
+    sys.path.insert(0, str(ROOT))
+    from scripts.pipeline_utils import setup_pipeline_logger, update_pipeline_state
+    
+    logger = setup_pipeline_logger(run_dir, "hindsight")
+    update_pipeline_state(run_dir, "hindsight", "running")
 
-    if not session_dir.exists():
-        print(f"ERROR: {session_dir} not found")
-        sys.exit(1)
+    try:
+        import yaml
+        with open(ROOT / args.config) as f:
+            config = yaml.safe_load(f)
 
-    if args.smoke:
-        print("\n" + "="*64)
-        print("  SMOKE TEST (100 frames)")
-        print("="*64)
-        _, _, _, _, _, _, val_s, _ = run_pipeline(
-            session_dir = session_dir,
-            out_dir     = out_base / "smoke_test",
-            batch_size  = args.batch_size,
-            max_frames  = 100,
-            label       = "SMOKE TEST",
-        )
+        is_smoke = args.smoke or config.get("smoke", {}).get("enabled", False)
+        session_dir = run_dir / config["exploration"]["output_subdir"]
+        out_base = run_dir / config["hindsight"]["output_subdir"]
 
-        if not val_s["passed"]:
-            print("\nSMOKE TEST FAILED:")
-            for e in val_s["errors"]:
-                print(f"  x {e}")
-            print("\nFix errors before running --full.")
+        if not session_dir.exists():
+            logger.error(f"ERROR: {session_dir} not found")
             sys.exit(1)
 
-        print("\nSMOKE TEST PASSED.")
-        if not args.full:
-            print("Run with --full to process the complete 72,000-frame dataset.")
-            return
+        batch_size = config["training"]["batch_size"] if "training" in config else 16
+        # Or you can hardcode batch size, but caching batch_size usually doesn't strictly matter.
+        batch_size = 16
 
-    if args.full:
-        print("\n" + "="*64)
-        print("  FULL DATASET (72,000 frames)")
-        print("="*64)
+        if is_smoke:
+            max_frames = config["smoke"]["max_frames"]
+            label = "SMOKE TEST"
+            logger.warning("SMOKE MODE ACTIVE — limits enforced")
+        else:
+            max_frames = None
+            label = "FULL DATASET"
+
+        logger.info(f"Starting {label}")
         phi_cache, ssd_scores, valid_mask, valid_goals_df, \
             geom_df, unif_df, val, elapsed = run_pipeline(
                 session_dir = session_dir,
                 out_dir     = out_base,
-                batch_size  = args.batch_size,
-                max_frames  = None,
-                label       = "FULL DATASET",
+                batch_size  = batch_size,
+                max_frames  = max_frames,
+                label       = label,
             )
 
         if not val["passed"]:
-            print("\nFULL DATASET VALIDATION FAILED:")
+            logger.error("VALIDATION FAILED:")
             for e in val["errors"]:
-                print(f"  x {e}")
+                logger.error(f"  x {e}")
+            update_pipeline_state(run_dir, "hindsight", "failed")
             sys.exit(1)
 
         report_path = out_base / "FINAL_HINDSIGHT_DATASET_REPORT.md"
@@ -1158,12 +1153,13 @@ def main():
             session_dir, out_base, elapsed,
         )
 
-        print(f"\nFINAL DATASET COMPLETE")
-        print(f"  Report: {report_path}")
+        logger.info(f"FINAL DATASET COMPLETE. Report: {report_path}")
+        update_pipeline_state(run_dir, "hindsight", "completed")
 
-    if not args.smoke and not args.full:
-        parser.print_help()
-
+    except Exception as e:
+        logger.error(f"Hindsight failed: {e}", exc_info=True)
+        update_pipeline_state(run_dir, "hindsight", "failed")
+        sys.exit(1)
 
 if __name__ == "__main__":
     main()

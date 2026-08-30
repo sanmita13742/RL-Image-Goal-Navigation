@@ -1,0 +1,36 @@
+# Walkthrough: Ranger Mini V3 MuJoCo Integration
+
+## What Was Done
+
+The `ranger_mini_v3` robot has been successfully integrated into the MuJoCo simulation environment, matching the architecture and standard API established by the Scout and original Ranger robots.
+
+### 1. XML Model Creation
+- Created `simulation/ranger_mini_v3/ranger_mini_v3.xml`.
+- Converted the URDF into a clean MuJoCo MJCF format.
+- Implemented **primitive collision geometries** (box for chassis, cylinders for wheels) instead of complex meshes to ensure RL physics stability and faster simulation times.
+- Resolved the asymmetrical rear-right wheel issue found in the original URDF (making it perfectly symmetric).
+- Configured 8 actuators (4 position for steering, 4 velocity for wheels).
+- Added an IMU, joint-velocity sensors, joint-position sensors, an RGB front camera, and a simulated LiDAR depth camera.
+
+### 2. Python API
+- Implemented `RangerMiniV3Robot` in `simulation/ranger_mini_v3/robot.py` (subclassing `RobotBase`).
+- Implemented the 4WD4WS Ackermann geometry mappings to correctly steer and drive the robot based on `v_linear` and `v_angular` commands.
+- Included sensor parsing helpers (`read_imu`, `read_wheel_velocities`, `read_steering_angles`) to support the data collection and checking scripts.
+
+### 3. Environment & Testing Scripts
+- Adapted the testing environment scripts from the original Ranger robot for V3:
+  - `check_sensors.py`: Tests the integrity of the URDF, sensors, physics settling, and camera rendering.
+  - `drive.py`: Allows manual teleoperation using keyboard inputs in the standalone robot view.
+  - `random_explore.py`: Generates the randomized RL exploration datasets (RGB + Depth + Pose).
+  - `test_env.py`: Creates a dynamic world with walls, ramps, and slalom obstacles.
+- **Refactoring:** Rewrote `test_env.py` to cleanly include `ranger_mini_v3.xml` dynamically, removing the need for a duplicate hardcoded robot body tree.
+
+## Verification
+
+The system was verified using `check_sensors.py`, confirming:
+- The robot settled securely on the ground (`Accel-Z ≈ 9.81 m/s²`).
+- Wheel velocity and steering angle sensors successfully initialized to 0.
+- Both the RGB (`front_cam`) and LiDAR depth (`lidar_cam`) cameras successfully rendered frames, correctly outputting to `front_cam_frame.png` and `lidar_depth.png`.
+
+> [!TIP]
+> You can manually verify the dynamics by running `python drive.py` in the `simulation/ranger_mini_v3` directory and driving the robot using the arrow keys!

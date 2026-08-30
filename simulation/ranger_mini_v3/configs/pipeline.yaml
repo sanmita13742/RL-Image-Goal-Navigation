@@ -1,0 +1,50 @@
+# MINav Pipeline Configuration
+
+run:
+  id: null             # auto-generated if null (format: minav_YYYYMMDD_HHMMSS)
+  seed: 42
+  device: auto         # auto | cpu | cuda
+
+map:
+  path: null           # required — set via --map or here
+
+exploration:
+  duration_minutes: 120     # PAPER: ~2 hours
+  control_freq_hz: 10       # PAPER: 10 Hz
+  segment_size: 1000        # IMPLEMENTATION CHOICE: storage boundary only
+  output_subdir: exploration
+
+hindsight:
+  dino_model: dinov3_vit_s16
+  input_resolution: [448, 784]
+  phi_dimension: 384           # PAPER: CLS token dimension
+  ssd_threshold: 0.02          # PAPER: scene stability threshold
+  ssd_crop: [14, 25]           # PAPER: center patch crop
+  geometric_p: 0.99            # PAPER: geometric future sampling
+  frames_per_state: 4          # PAPER: 4-frame observation
+  reward_threshold: 0.8        # PAPER: cosine similarity for r=1
+  done_threshold: 0.8          # PAPER: cosine similarity for done
+  critic_geometric_fraction: 0.5   # PAPER: 50/50 split
+  actor_sampling: uniform           # PAPER: actor uses uniform only
+  output_subdir: processed
+
+training:
+  batch_size: 256
+  gamma: 0.99
+  lambda_bc: 0.001             # PAPER: BC regularization weight
+  lr_actor: 3.0e-4
+  lr_critic: 3.0e-4
+  policy_delay: 2
+  tau: 0.005
+  target_noise: 0.2
+  target_noise_clip: 0.5
+  total_gradient_steps: 1000000
+  action_scale: [1.8, 1.0, 1.5]   # PAPER: physical action range
+  checkpoint_every: 10000
+  output_subdir: training
+
+smoke:
+  enabled: false
+  exploration_minutes: 1
+  max_frames: 100
+  training_steps: 500
