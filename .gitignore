@@ -9,10 +9,22 @@ __pycache__/
 
 # Datasets & Logs
 dataset/
+data/
+runs/
+analysis_output*/
+comparison/
+whitenoise/
 *.png
 *.jpg
 *.csv
 *.mp4
+*.log
+
+# Models & Data Files
+*.pt
+*.npy
+*.parquet
+*.npz
 
 # Artifacts & ZIPs
 *.zip

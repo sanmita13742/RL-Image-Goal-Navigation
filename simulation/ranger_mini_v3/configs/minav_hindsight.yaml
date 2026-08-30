@@ -1,0 +1,116 @@
+# MINav Hindsight Pipeline Configuration
+# ============================================================
+# Configuration for the visual representation + hindsight
+# goal relabeling pipeline for the MINav paper reproduction.
+#
+# "120 Minutes and a Laptop: Minimalist Image-goal Navigation
+#  via Unsupervised Exploration and Offline RL" (arXiv:2603.26441)
+#
+# For every parameter, we document whether the value is
+# PAPER-SPECIFIED or an IMPLEMENTATION CHOICE.
+
+# ── Dataset ────────────────────────────────────────────────
+dataset:
+  session_dir: "dataset/20260811_234812"   # path to session directory
+  session_id:  "20260811_234812"
+
+# ── DINOv3 Encoder ─────────────────────────────────────────
+dinov3:
+  model_name:   "vit_small_patch16_dinov3"  # PAPER SPECIFIES: DINOv3 ViT-S/16
+  pretrained:   true
+  device:       "auto"                      # "auto" = cuda if available, else cpu
+
+  # PAPER SPECIFIES: Input resolution 448 x 784 (H x W)
+  image_height: 448
+  image_width:  784
+
+  # PAPER DOES NOT SPECIFY: Image normalization.
+  # IMPLEMENTATION CHOICE: ToTensor() only [0,1], no ImageNet stats.
+  # Matches encoder_v2.py implementation.
+  normalize_imagenet: false
+
+  # Architecture constants (derived from ViT-S/16 + 448x784 input)
+  patch_size:       16     # ViT-S/16 patch size
+  patch_grid_h:     28     # 448 / 16
+  patch_grid_w:     49     # 784 / 16
+  n_special_tokens: 5      # 1 CLS + 4 register tokens (DINOv2-style)
+  embed_dim:        384    # ViT-S standard
+
+# ── SSD (Spatial Standard Deviation) ───────────────────────
+ssd:
+  # PAPER SPECIFIES: delta_SSD = 0.02
+  threshold: 0.02
+
+  # PAPER SPECIFIES: SSD computed over center-cropped region
+  # PAPER DOES NOT SPECIFY: exact crop dimensions
+  # IMPLEMENTATION CHOICE: 14 x 25 patch crop from encoder_v2.py
+  crop_h: 14
+  crop_w: 25
+
+# ── φ(o) Representation ────────────────────────────────────
+representation:
+  # Implementation choice / inferred from DINOv3 feature interface.
+  # Paper specifies normalized visual feature phi(o), but does not explicitly
+  # state "CLS token" in the paper text.
+  type: "dinov3_normalized_cls"
+  dim: 384
+  normalize: false
+
+# ── 4-Frame State Construction ─────────────────────────────
+state:
+  # PAPER SPECIFIES: s_t = [o'_{t-3}, o'_{t-2}, o'_{t-1}, o'_t]
+  frame_stack: 4
+  # NOTE: temporal continuity is defined by global_step, NOT segment boundaries.
+  # A state may span multiple segment folders.
+
+# ── Geometric Future Sampling ──────────────────────────────
+geometric:
+  # PAPER SPECIFIES: P(K=k) = p^(k-1) * (1-p) for k >= 1
+  # PAPER DOES NOT SPECIFY: numerical value of p
+  # IMPLEMENTATION CHOICE: p = 0.99. Not specified in the paper.
+  # For p=0.99, expected offset E[K] = 1/(1-p) = 100 frames (~10 seconds at 10Hz).
+  p: 0.99
+  # PAPER SPECIFIES: goal_global_step > current_global_step (strictly future)
+  # PAPER SPECIFIES: goal <= final_global_step
+
+# ── Uniform Goal Sampling ──────────────────────────────────
+uniform:
+  # PAPER SPECIFIES: g ~ Uniform(G) where G = valid goal set (SSD > threshold)
+  # PAPER SPECIFIES: goals may be from any segment (global pool)
+  # PAPER SPECIFIES: goals may be past or future
+  goal_pool: "global"   # sample from entire valid goal set
+
+# ── Reward ─────────────────────────────────────────────────
+reward:
+  # PAPER SPECIFIES: S(s_t, g) = (1/4) * sum_i cos(o'_{t-3+i}, g)
+  # PAPER SPECIFIES: delta_done = 0.8
+  # PAPER SPECIFIES: reward = 1 if S >= 0.8, else 0
+  # PAPER SPECIFIES: done = 1 if S >= 0.8, else 0
+  similarity_threshold: 0.8
+  # NOTE: segment boundaries are NOT done signals.
+  # done=1 ONLY when visual similarity >= threshold.
+
+# ── Hindsight Relabeling ───────────────────────────────────
+hindsight:
+  # PAPER DOES NOT SPECIFY: number of goals per transition
+  # IMPLEMENTATION CHOICE: 1 for testing, increase for full dataset
+  num_goals_per_transition: 1
+
+  # PAPER SPECIFIES: critic uses 50% geometric + 50% uniform
+  # PAPER SPECIFIES: actor uses uniform sampling only
+  critic_geometric_fraction: 0.5
+
+# ── Caching ────────────────────────────────────────────────
+cache:
+  batch_size:          32        # DINOv3 batch inference size
+  
+  # For the FULL dataset, we do NOT store the full grid to save space.
+  # Instead we store the mean-pooled, L2-normalized phi(o) vector.
+  store_full_grid:     false     # do not store full [28,49,384] per frame
+  store_pooled:        true      # store mean-pooled [384] phi(o) per frame
+  store_ssd_scores:    true      # store SSD scalar per frame
+
+# ── Small Test Config (Phase 17) ──────────────────────────
+test:
+  max_frames:                1000   # use only first N frames
+  num_goals_per_transition:  1

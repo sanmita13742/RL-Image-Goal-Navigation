@@ -1,0 +1,32 @@
+# configs/td3_bc.yaml
+seed: 42
+device: auto
+
+# Paths (relative to project root)
+dataset_path: data/processed
+output_dir: data/models/td3_bc_full
+
+# Hyperparameters
+# PAPER-SPECIFIED
+lambda_bc: 0.001
+# IMPLEMENTATION CHOICES (Standard TD3 defaults)
+batch_size: 256
+learning_rate_actor: 0.0003
+learning_rate_critic: 0.0003
+gamma: 0.99
+tau: 0.005
+policy_delay: 2
+target_noise: 0.2
+target_noise_clip: 0.5
+total_gradient_steps: 1000000
+
+# Feature loading mode (mmap or ram)
+feature_loading: ram
+
+# Checkpoints
+checkpoint_frequency: 100000
+fqe_frequency: 100000
+
+# Compute
+num_workers: 4
+mixed_precision: false
