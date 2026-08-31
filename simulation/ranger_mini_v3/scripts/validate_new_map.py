@@ -111,7 +111,7 @@ def validate_environment(map_path: Path):
     return True
 
 if __name__ == "__main__":
-    map_path = Path(__file__).parent.parent / "maps" / "new_navigation_map" / "scene.xml"
+    map_path = Path(__file__).parent.parent / "maps" / "complex" / "scene.xml"
     success = validate_environment(map_path)
     if not success:
         sys.exit(1)

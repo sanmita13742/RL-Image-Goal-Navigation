@@ -26,7 +26,7 @@ def main():
     parser.add_argument("--save-images", action="store_true", help="Save RGB and Depth images to test_output/")
     args = parser.parse_args()
 
-    map_path = Path(__file__).parent.parent / "maps" / "new_navigation_map" / "scene.xml"
+    map_path = Path(__file__).parent.parent / "maps" / "complex" / "scene.xml"
     if not map_path.exists():
         print(f"Error: Map not found at {map_path}")
         sys.exit(1)
