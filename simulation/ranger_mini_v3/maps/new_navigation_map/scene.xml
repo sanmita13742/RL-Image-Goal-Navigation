@@ -1,0 +1,85 @@
+<mujoco model="minav_maze_env">
+
+  <compiler angle="radian"/>
+  <option timestep="0.004" integrator="RK4" gravity="0 0 -9.81"/>
+
+  <default>
+    <joint damping="1.0" armature="0.01"/>
+    <geom friction="1.2 0.01 0.001" condim="4" solimp="0.9 0.95 0.001" solref="0.02 1"/>
+  </default>
+
+  <!-- Include the base robot model -->
+  <include file="../../ranger_mini_v3.xml"/>
+
+  <asset>
+    <!-- Basic structural materials -->
+    <material name="maze_wall"   rgba="0.5 0.5 0.5 1"/>
+    <material name="maze_floor"  rgba="0.2 0.2 0.2 1"/>
+    
+    <!-- Distinctive Colors for visual aliasing / corridors -->
+    <material name="mat_green"  rgba="0.2 0.7 0.3 1"/>
+    <material name="mat_blue"   rgba="0.2 0.3 0.8 1"/>
+    <material name="mat_yellow" rgba="0.8 0.8 0.1 1"/>
+    <material name="mat_orange" rgba="0.9 0.5 0.1 1"/>
+    <material name="mat_red"    rgba="0.8 0.1 0.1 1"/>
+    
+    <!-- Landmark Colors -->
+    <material name="mat_cyan"   rgba="0.1 0.9 0.9 1"/>
+    <material name="mat_purple" rgba="0.7 0.2 0.8 1"/>
+  </asset>
+
+  <worldbody>
+    <!-- ── Lighting ────────────────────────────────────────────────────── -->
+    <!-- Soft, relatively uniform lighting to prevent extreme shadows but give depth -->
+    <light name="fill1" pos="0 0 10" dir="0 0 -1" diffuse="0.7 0.7 0.7" castshadow="false"/>
+    <light name="fill2" pos="-5 -5 6" dir="1 1 -1" diffuse="0.4 0.4 0.4" castshadow="false"/>
+    <light name="fill3" pos="5 5 6" dir="-1 -1 -1" diffuse="0.4 0.4 0.4" castshadow="false"/>
+
+    <!-- ── Floor ───────────────────────────────────────────────────────── -->
+    <geom name="maze_floor" type="plane" size="8 8 0.1" pos="0 0 0" material="maze_floor" contype="1" conaffinity="1"/>
+
+    <!-- ── Perimeter walls (16x16 meters) ──────────────────────────────── -->
+    <geom name="wall_n" type="box" size="8 0.2 1.5" pos="0  8 1.5" material="maze_wall" contype="1" conaffinity="1"/>
+    <geom name="wall_s" type="box" size="8 0.2 1.5" pos="0 -8 1.5" material="maze_wall" contype="1" conaffinity="1"/>
+    <geom name="wall_e" type="box" size="0.2 8 1.5" pos=" 8 0 1.5" material="maze_wall" contype="1" conaffinity="1"/>
+    <geom name="wall_w" type="box" size="0.2 8 1.5" pos="-8 0 1.5" material="maze_wall" contype="1" conaffinity="1"/>
+
+    <!-- ── Internal Maze Geometry ──────────────────────────────────────── -->
+    
+    <!-- ALIASED STRUCTURE 1 (Bottom-Left) -->
+    <!-- U-Shape opening West. Green -> Yellow -> Orange -->
+    <geom name="a1_green"  type="box" size="2 0.2 1.5" pos="-4 -6 1.5" material="mat_green"/>
+    <geom name="a1_yellow" type="box" size="0.2 2 1.5" pos="-2 -4 1.5" material="mat_yellow"/>
+    <geom name="a1_orange" type="box" size="2 0.2 1.5" pos="-4 -2 1.5" material="mat_orange"/>
+
+    <!-- ALIASED STRUCTURE 2 (Top-Right) -->
+    <!-- Exact same U-Shape opening West, but shifted to Top-Right -->
+    <geom name="a2_green"  type="box" size="2 0.2 1.5" pos="4 2 1.5" material="mat_green"/>
+    <geom name="a2_yellow" type="box" size="0.2 2 1.5" pos="6 4 1.5" material="mat_yellow"/>
+    <geom name="a2_orange" type="box" size="2 0.2 1.5" pos="4 6 1.5" material="mat_orange"/>
+
+    <!-- DIVIDER 1: Central Horizontal (Blue) -->
+    <!-- Creates a long corridor in the middle of the map -->
+    <geom name="div1_blue" type="box" size="4 0.2 1.5" pos="2 0 1.5" material="mat_blue"/>
+
+    <!-- DIVIDER 2: Top-Left Vertical (Red) -->
+    <!-- Blocks direct vertical movement on the left, forcing S-curves -->
+    <geom name="div2_red"  type="box" size="0.2 3 1.5" pos="-4 5 1.5" material="mat_red"/>
+
+    <!-- DIVIDER 3: Bottom-Right Vertical (Dark Gray Wall Mat) -->
+    <!-- Creates a narrow dead-end or tight turn on the bottom right -->
+    <geom name="div3_gray" type="box" size="0.2 2 1.5" pos="2 -5 1.5" material="maze_wall"/>
+
+    <!-- ── Landmarks ───────────────────────────────────────────────────── -->
+    
+    <!-- Landmark 1: Cyan Cylinder (Top Left corner) -->
+    <geom name="lm_cyan"   type="cylinder" size="0.5 1.5" pos="-6.5 6.5 1.5" material="mat_cyan"/>
+    
+    <!-- Landmark 2: Purple Box (Bottom Right corridor) -->
+    <geom name="lm_purple" type="box" size="0.6 0.6 0.6" pos="6 -6 0.6" material="mat_purple"/>
+    
+    <!-- Landmark 3: Red Cone (Center Left intersection) -->
+    <geom name="lm_red"    type="cylinder" size="0.4 1.0" pos="-6 0 1.0" material="mat_red"/>
+
+  </worldbody>
+</mujoco>
