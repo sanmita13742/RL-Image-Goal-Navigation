@@ -5,6 +5,7 @@ import json
 import time
 import csv
 import math
+import shutil
 from datetime import datetime
 from pathlib import Path
 import numpy as np
@@ -121,15 +122,65 @@ def main():
         policy = PrimitiveExplorationPolicy(control_freq, beta=1)
         
         seg_id = 0
-        seg_dir, rgb_dir, depth_dir, csv_file, writer = open_segment(session_dir, seg_id)
         seg_step = 0
         seg_start_global = 0
-        
         segment_meta = []
+        
+        # --- Resume Logic ---
+        metadata_path = session_dir / "exploration_metadata.json"
+        if metadata_path.exists():
+            try:
+                with open(metadata_path, "r") as f:
+                    old_meta = json.load(f)
+                segment_meta = old_meta.get("segments", [])
+                if segment_meta:
+                    last_seg = segment_meta[-1]
+                    seg_id = int(last_seg["segment_id"].split("_")[1]) + 1
+                    seg_start_global = last_seg["global_end"] + 1
+                    logger.info(f"Resuming from segment_{seg_id:03d} at global step {seg_start_global}")
+            except Exception as e:
+                logger.warning(f"Could not parse existing metadata: {e}. Starting fresh.")
+                segment_meta = []
+                seg_id = 0
+                seg_start_global = 0
+
+        # Clean up any partial/future segment directories
+        for p in session_dir.glob("segment_*"):
+            if p.is_dir():
+                try:
+                    p_id = int(p.name.split("_")[1])
+                    if p_id >= seg_id:
+                        logger.info(f"Removing partial/leftover segment dir: {p.name}")
+                        shutil.rmtree(p)
+                except ValueError:
+                    pass
+
+        if seg_start_global >= total_steps:
+            logger.info("Exploration already completed according to metadata.")
+            update_pipeline_state(run_dir, "exploration", "completed")
+            return
+
+        def save_metadata_incremental(current_global_step):
+            meta = {
+                "run_id": run_dir.name,
+                "duration_minutes": duration_minutes,
+                "control_freq_hz": control_freq,
+                "total_steps_planned": total_steps,
+                "total_steps_recorded": current_global_step,
+                "segment_size": segment_size,
+                "num_segments": len(segment_meta),
+                "robot_resets": 0,
+                "smoke_mode": is_smoke,
+                "segments": segment_meta
+            }
+            with open(metadata_path, "w") as f:
+                json.dump(meta, f, indent=4)
+
+        seg_dir, rgb_dir, depth_dir, csv_file, writer = open_segment(session_dir, seg_id)
         
         start_time = time.time()
         
-        for global_step in range(total_steps):
+        for global_step in range(seg_start_global, total_steps):
             if seg_step == segment_size:
                 csv_file.close()
                 segment_meta.append({
@@ -139,6 +190,8 @@ def main():
                     "num_steps": segment_size
                 })
                 logger.info(f"[SEG DONE] segment_{seg_id:03d} | global {seg_start_global}-{global_step-1}")
+                save_metadata_incremental(global_step)
+
                 
                 seg_id += 1
                 seg_step = 0
@@ -185,21 +238,8 @@ def main():
             "global_end": total_steps - 1,
             "num_steps": seg_step
         })
-        
-        meta = {
-            "run_id": run_dir.name,
-            "duration_minutes": duration_minutes,
-            "control_freq_hz": control_freq,
-            "total_steps_planned": total_steps,
-            "total_steps_recorded": total_steps,
-            "segment_size": segment_size,
-            "num_segments": len(segment_meta),
-            "robot_resets": 0,
-            "smoke_mode": is_smoke,
-            "segments": segment_meta
-        }
-        with open(session_dir / "exploration_metadata.json", "w") as f:
-            json.dump(meta, f, indent=4)
+        save_metadata_incremental(total_steps)
+
             
         logger.info("Exploration phase completed successfully.")
         update_pipeline_state(run_dir, "exploration", "completed")
