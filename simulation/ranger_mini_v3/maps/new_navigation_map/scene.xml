@@ -81,5 +81,22 @@
     <!-- Landmark 3: Red Cone (Center Left intersection) -->
     <geom name="lm_red"    type="cylinder" size="0.4 1.0" pos="-6 0 1.0" material="mat_red"/>
 
+    <!-- ── Search Cells & Hidden Objects ───────────────────────────────── -->
+    
+    <!-- Cell 1 (Top Center) -->
+    <geom name="cell1_wall_l" type="box" size="0.2 2.0 1.5" pos="-1.5 5 1.5" material="maze_wall"/>
+    <geom name="cell1_wall_r" type="box" size="0.2 2.0 1.5" pos="1.5 5 1.5" material="maze_wall"/>
+    <geom name="cell1_obj"    type="sphere" size="0.5" pos="0 5 0.5" material="mat_blue"/>
+    
+    <!-- Cell 2 (West Wall Enclave) -->
+    <geom name="cell2_wall_t" type="box" size="1.0 0.2 1.5" pos="-7 3.5 1.5" material="maze_wall"/>
+    <geom name="cell2_wall_b" type="box" size="1.0 0.2 1.5" pos="-7 0.5 1.5" material="maze_wall"/>
+    <geom name="cell2_obj"    type="box" size="0.4 0.4 0.4" pos="-7 2 0.4" material="mat_yellow"/>
+
+    <!-- Cell 3 (East Wall Enclave) -->
+    <geom name="cell3_wall_t" type="box" size="1.0 0.2 1.5" pos="7 -0.5 1.5" material="maze_wall"/>
+    <geom name="cell3_wall_b" type="box" size="1.0 0.2 1.5" pos="7 -3.5 1.5" material="maze_wall"/>
+    <geom name="cell3_obj"    type="cylinder" size="0.4 0.8" pos="7 -2 0.8" material="mat_orange"/>
+
   </worldbody>
 </mujoco>
