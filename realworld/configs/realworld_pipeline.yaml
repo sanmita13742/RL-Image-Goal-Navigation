@@ -1,0 +1,93 @@
+# MINav Real-World Pipeline Configuration
+# ============================================================
+# Configuration for the Ranger Mini V3 real-robot exploration
+# and training pipeline via ROS 2 Foxy.
+#
+# Hardware stack (confirmed from rosbag):
+#   - Robot:  Ranger Mini V3 via CAN bus (ranger_bringup)
+#   - Camera: Intel RealSense (realsense2_camera)
+#   - LiDAR:  RoboSense (/rslidar_points)
+#   - Odom:   ranger_base /odom at ~50 Hz
+
+run:
+  id: null             # auto-generated if null (format: realworld_YYYYMMDD_HHMMSS)
+  seed: 42
+  device: auto         # auto | cpu | cuda
+
+robot:
+  cmd_vel_topic: /cmd_vel
+  odom_topic: /odom
+  base_frame: base_link
+  # Physical action bounds (AGENTS.md):
+  max_linear_vel: 1.8       # m/s forward
+  min_linear_vel: -0.9      # m/s reverse
+  max_lateral_vel: 1.0      # m/s crab walk
+  max_angular_vel: 1.5      # rad/s
+  dry_run: true              # DEFAULT: never move without explicit --arm
+
+camera:
+  topic: /camera/color/image_raw
+  encoding: rgb8
+  width: 640
+  height: 480
+
+lidar:
+  topic: /rslidar_points
+  # LiDAR-to-depth projection parameters
+  # Project 3D PointCloud2 into a 2D obstacle proximity image
+  # matching the MuJoCo depth image interface (H, W) array
+  projection_width: 640       # output depth image width
+  projection_height: 60       # output depth image height (matches MuJoCo lidar_cam)
+  max_range: 10.0             # metres — points beyond this are clipped
+  min_range: 0.1              # metres — points closer are noise
+  height_min: -0.3            # metres — relative to base_link, filter ground
+  height_max: 1.0             # metres — relative to base_link, filter ceiling
+  fov_deg: 360.0              # horizontal field of view (RoboSense is 360°)
+
+exploration:
+  duration_minutes: 120       # PAPER: ~2 hours
+  control_freq_hz: 10         # PAPER: 10 Hz
+  segment_size: 1000          # IMPLEMENTATION CHOICE: storage boundary only
+  output_subdir: exploration
+  pink_noise_beta: 1          # MINav paper: β=1
+
+safety:
+  camera_timeout_s: 2.0       # e-stop if no camera frame for this long
+  odom_timeout_s: 2.0         # e-stop if no odom for this long
+  lidar_timeout_s: 3.0        # e-stop if no lidar for this long
+  watchdog_hz: 5              # safety check frequency
+
+# Downstream pipeline (identical to MuJoCo — reuses same modules)
+hindsight:
+  dino_model: dinov3_vit_s16
+  input_resolution: [448, 784]
+  phi_dimension: 384
+  ssd_threshold: 0.02
+  geometric_p: 0.99
+  frames_per_state: 4
+  reward_threshold: 0.8
+  done_threshold: 0.8
+  critic_geometric_fraction: 0.5
+  actor_sampling: uniform
+  output_subdir: processed
+
+training:
+  batch_size: 256
+  gamma: 0.99
+  lambda_bc: 0.001
+  lr_actor: 3.0e-4
+  lr_critic: 3.0e-4
+  policy_delay: 2
+  tau: 0.005
+  target_noise: 0.2
+  target_noise_clip: 0.5
+  total_gradient_steps: 1000000
+  action_scale: [1.8, 1.0, 1.5]
+  checkpoint_every: 10000
+  output_subdir: training
+
+smoke:
+  enabled: false
+  exploration_minutes: 0.5
+  max_frames: 50
+  training_steps: 500

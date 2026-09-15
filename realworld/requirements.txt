@@ -1,0 +1,12 @@
+# Real-world pipeline dependencies
+# Excludes ROS 2 core packages (rclpy, sensor_msgs, etc.) which should be provided by the ROS 2 Foxy installation.
+
+numpy
+scipy
+pandas
+pyarrow        # for parquet saving
+torch
+torchvision
+Pillow
+pyyaml
+pytest
