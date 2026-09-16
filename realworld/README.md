@@ -1,6 +1,6 @@
 # Real-World MINav Pipeline
 
-This directory contains the real-robot execution pipeline for the MINav project. It is designed to run on the **Ranger Mini V3** robot via **ROS 2 Foxy**, using an Intel RealSense camera for image goals and a RoboSense LiDAR for collision avoidance.
+This directory contains the real-robot execution pipeline for the MINav project. It is designed to run on the **Ranger Mini V3** robot via **ROS 2 Humble**, using an Intel RealSense camera for image goals and a RoboSense LiDAR for collision avoidance.
 
 ## Architecture
 
@@ -16,13 +16,13 @@ Confirmed via rosbag and launch scripts:
 - **Camera:** Intel RealSense (`realsense2_camera` package, topic: `/camera/color/image_raw`)
 - **LiDAR:** RoboSense (`/rslidar_points`, ~10 Hz)
 - **Odometry:** `ranger_base` wheel odometry (`/odom`, ~50 Hz)
-- **ROS 2:** Foxy
+- **ROS 2:** Humble
 
 ## Setup
 
-1. Source your ROS 2 Foxy installation and the Ranger workspaces:
+1. Source your ROS 2 Humble installation and the Ranger workspaces:
    ```bash
-   source /opt/ros/foxy/setup.bash
+   source /opt/ros/humble/setup.bash
    source ~/agilex_ws/install/setup.bash
    source ~/rslidar_ws/install/setup.bash
    ```
