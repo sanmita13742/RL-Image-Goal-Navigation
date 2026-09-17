@@ -134,15 +134,15 @@ class BaseExploration(abc.ABC):
         # 1. Reactive Escape (Obstacles)
         if min_depth < 0.80:
             if min_l > 1.0:
-                self.recovery_state = "REACTIVE_ESCAPE_TRAVERSE"
-                self.recovery_cmd = DriveCommand(v_linear=0.0, v_lateral=0.8, v_angular=0.0)
+                self.recovery_state = "REACTIVE_ESCAPE_SPIN"
+                self.recovery_cmd = DriveCommand(v_linear=0.0, v_lateral=0.0, v_angular=1.5)
                 self.recovery_timer = int(self.control_freq * 1.5)
-                self._switch_primitive(Primitive.TRAVERSE)
+                self._switch_primitive(Primitive.SPIN)
             elif min_r > 1.0:
-                self.recovery_state = "REACTIVE_ESCAPE_TRAVERSE"
-                self.recovery_cmd = DriveCommand(v_linear=0.0, v_lateral=-0.8, v_angular=0.0)
+                self.recovery_state = "REACTIVE_ESCAPE_SPIN"
+                self.recovery_cmd = DriveCommand(v_linear=0.0, v_lateral=0.0, v_angular=-1.5)
                 self.recovery_timer = int(self.control_freq * 1.5)
-                self._switch_primitive(Primitive.TRAVERSE)
+                self._switch_primitive(Primitive.SPIN)
             elif min_depth < 0.70:
                 self.recovery_state = "REACTIVE_ESCAPE_REVERSE"
                 steer = -1.0 if min_l > min_r else 1.0
@@ -221,7 +221,7 @@ class PrimitiveExplorationPolicy(BaseExploration):
         super().__init__(control_freq)
         self.beta = beta
 
-        self.speed_noise = UniformColoredNoise(beta, range_val=(0.3, 1.8))
+        self.speed_noise = UniformColoredNoise(beta, range_val=(0.1, 0.4))
         self.steer_noise = UniformColoredNoise(beta, range_val=(-1.0, 1.0))
         self.lat_noise   = UniformColoredNoise(beta, range_val=(-1.0, 1.0))
 
