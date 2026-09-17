@@ -132,18 +132,18 @@ class BaseExploration(abc.ABC):
             return self.recovery_cmd, self.current_primitive
 
         # 1. Reactive Escape (Obstacles)
-        if min_depth < 0.85:
-            if min_l > 1.2:
+        if min_depth < 0.80:
+            if min_l > 1.0:
                 self.recovery_state = "REACTIVE_ESCAPE_TRAVERSE"
                 self.recovery_cmd = DriveCommand(v_linear=0.0, v_lateral=0.8, v_angular=0.0)
                 self.recovery_timer = int(self.control_freq * 1.5)
                 self._switch_primitive(Primitive.TRAVERSE)
-            elif min_r > 1.2:
+            elif min_r > 1.0:
                 self.recovery_state = "REACTIVE_ESCAPE_TRAVERSE"
                 self.recovery_cmd = DriveCommand(v_linear=0.0, v_lateral=-0.8, v_angular=0.0)
                 self.recovery_timer = int(self.control_freq * 1.5)
                 self._switch_primitive(Primitive.TRAVERSE)
-            elif min_depth < 0.5:
+            elif min_depth < 0.70:
                 self.recovery_state = "REACTIVE_ESCAPE_REVERSE"
                 steer = -1.0 if min_l > min_r else 1.0
                 self.recovery_cmd = DriveCommand(v_linear=-0.8, v_lateral=0.0, v_angular=steer)
