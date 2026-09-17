@@ -91,16 +91,22 @@ class ExplorationRunner:
         With only ~500 points in a 38400-pixel image, isolated near-range
         pixels are noise (ground reflections, chassis returns). Only keep
         near-range values in each image third if enough pixels support them.
+
+        The collision avoidance triggers at < 0.6m, so we count pixels
+        below 1.0m (with margin) and require at least min_obstacle_pixels
+        to confirm a real obstacle.
         """
         filtered = depth.copy()
         h, w = filtered.shape
-        threshold = self._max_range * 0.95  # anything below 9.5m is "non-empty"
+        # Count pixels in the collision-relevant range (< 1.0m)
+        obstacle_threshold = 1.0
 
         for start_col, end_col in [(0, w // 3), (w // 3, 2 * w // 3), (2 * w // 3, w)]:
             region = filtered[:, start_col:end_col]
-            near_count = (region < threshold).sum()
+            near_count = (region < obstacle_threshold).sum()
             if near_count < self._min_obstacle_pixels:
-                region[:] = self._max_range
+                # Not enough evidence of a real obstacle — suppress noise
+                region[region < obstacle_threshold] = self._max_range
 
         return filtered
 
