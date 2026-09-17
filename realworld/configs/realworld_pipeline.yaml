@@ -39,7 +39,7 @@ lidar:
   projection_width: 640       # output depth image width
   projection_height: 60       # output depth image height (matches MuJoCo lidar_cam)
   max_range: 10.0             # metres — points beyond this are clipped
-  min_range: 0.1              # metres — points closer are noise
+  min_range: 0.35              # metres — filter near-field noise (chassis/ground)
   height_min: -0.3            # metres — relative to base_link, filter ground
   height_max: 1.0             # metres — relative to base_link, filter ceiling
   fov_deg: 360.0              # horizontal field of view (RoboSense is 360°)
