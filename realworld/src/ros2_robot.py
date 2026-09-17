@@ -94,9 +94,14 @@ class ROS2RangerMiniV3(Node):
         self._cmd_pub = self.create_publisher(Twist, cmd_vel_topic, 10)
         self._cmd_count = 0
 
-        from rclpy.qos import qos_profile_sensor_data
+        # Subscriber — match QoS from rosbag (reliable, volatile)
+        odom_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+            depth=10,
+        )
         self._odom_sub = self.create_subscription(
-            Odometry, odom_topic, self._odom_callback, qos_profile_sensor_data
+            Odometry, odom_topic, self._odom_callback, odom_qos
         )
 
         # Thread-safe pose
