@@ -39,7 +39,7 @@ We have designed a custom 16x16m indoor navigation maze to rigorously stress-tes
 - **Completed**: The real-world ROS 2 pipeline (`realworld/`) is fully implemented with LiDAR collision avoidance, safety watchdogs, and a mandatory pre-flight smoke test suite.
 - **Next Steps**: Execute the full-scale (2-hour) exploration and training run on the real Ranger Mini V3 hardware.
 
-## 6. Real-World Pipeline (ROS 2 Humble)
+## 6. Real-World Pipeline (ROS 2 Foxy)
 - **Location**: `realworld/`
 - **Hardware**: Ranger Mini V3, Intel RealSense RGB camera, RoboSense LiDAR.
 - **Safety First**: The exploration script (`realworld/scripts/run_exploration.py`) operates in **DRY-RUN** mode by default. The robot will not move unless explicitly passed `--arm`.
