@@ -118,6 +118,10 @@ class BaseExploration(abc.ABC):
         min_r = np.min(right_third)
         min_depth = min(min_c, min_l, min_r)
 
+        # DEBUG PRINT TO DIAGNOSE SPINNING
+        if self.timer % 10 == 0:
+            print(f"[DEBUG EXPLORATION] min_l: {min_l:.2f}, min_c: {min_c:.2f}, min_r: {min_r:.2f} | min_depth: {min_depth:.2f} | current_prim: {self.current_primitive.name} | state: {self.recovery_state}")
+
         # ─── Collision Recovery State Machine ───
 
         if self.recovery_timer > 0:
@@ -248,34 +252,11 @@ class PrimitiveExplorationPolicy(BaseExploration):
         return (int(math.floor(px / self.grid_res)), int(math.floor(py / self.grid_res)))
 
     def _sample_primitive(self, efficiency: float) -> tuple:
-        probs = self.base_probs.copy()
-
-        # 1. Adaptive Meta-Scheduler: Boost escape primitives if coverage stagnates
-        if len(self.visited_history) == self.window_size and efficiency < 0.05:
-            probs[Primitive.ACKERMANN] *= 0.5
-            probs[Primitive.TRAVERSE]  *= 2.0
-            probs[Primitive.DIAGONAL]  *= 1.5
-            probs[Primitive.REVERSE]   *= 1.5
-
-        # 2. Soft Revisitation Penalty: Repel from hotspots
-        for p in Primitive:
-            projected = self._predict_cell(p)
-            visits = self.visit_grid[projected]
-            if visits > 0:
-                probs[p] *= math.exp(-0.1 * visits)
-
-        # Normalize
-        total_p = sum(probs.values())
-        if total_p == 0:
-            probs = self.base_probs.copy()
-            total_p = sum(probs.values())
-
-        keys = list(probs.keys())
-        weights = [probs[k]/total_p for k in keys]
-
-        prim = random.choices(keys, weights=weights, k=1)[0]
+        # SIMPLIFIED MODE FOR REAL WORLD: 
+        # Only use ACKERMANN (forward/turn) for normal exploration.
+        # Ignore the complex visit grid and primitive switching.
+        prim = Primitive.ACKERMANN
         hold_time = random.uniform(1.0, 3.0)
-
         return self._modulate_primitive(DriveCommand(), prim), prim, hold_time
 
     def _modulate_primitive(self, cmd: DriveCommand, prim: Primitive) -> DriveCommand:
