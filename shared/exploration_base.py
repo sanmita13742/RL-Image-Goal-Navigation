@@ -89,24 +89,7 @@ class BaseExploration(abc.ABC):
             self.visited_history.pop(0)
 
     def get_action(self, depth_img: np.ndarray, x: float, y: float, yaw: float) -> tuple:
-        """Compute the next exploration action.
-
-        Parameters
-        ----------
-        depth_img : np.ndarray
-            2D array of obstacle proximity values. Lower = closer obstacle.
-            In MuJoCo: direct depth render. On real robot: LiDAR projection.
-        x, y : float
-            Robot position in metres.
-        yaw : float
-            Robot heading in radians.
-
-        Returns
-        -------
-        (DriveCommand, Primitive)
-        """
         self.x, self.y, self.yaw = x, y, yaw
-        self._update_visit_grid(x, y)
 
         h, w = depth_img.shape
         left_third = depth_img[:, :w//3]
@@ -118,68 +101,33 @@ class BaseExploration(abc.ABC):
         min_r = np.min(right_third)
         min_depth = min(min_c, min_l, min_r)
 
-        # DEBUG PRINT TO DIAGNOSE SPINNING
+        # DEBUG PRINT
         if self.timer % 10 == 0:
-            print(f"[DEBUG EXPLORATION] min_l: {min_l:.2f}, min_c: {min_c:.2f}, min_r: {min_r:.2f} | min_depth: {min_depth:.2f} | current_prim: {self.current_primitive.name} | state: {self.recovery_state}")
+            print(f"[DEBUG] min_l: {min_l:.2f}, min_c: {min_c:.2f}, min_r: {min_r:.2f} | min_depth: {min_depth:.2f}")
 
-        # ─── Collision Recovery State Machine ───
-
-        if self.recovery_timer > 0:
-            self.recovery_timer -= 1
-            self.active_primitive_timer += self.dt
-            if self.recovery_timer == 0:
-                self.recovery_state = "NORMAL"
-            return self.recovery_cmd, self.current_primitive
-
-        # 1. Reactive Escape (Obstacles)
+        # ─── Simple Collision Avoidance ───
         if min_depth < 0.80:
-            self.recovery_state = "REACTIVE_ESCAPE_REVERSE"
-            # Steer towards the side that has MORE space while backing up
-            # If left is open, steer right while reversing so the front points left
+            # We are close to an obstacle. Turn towards the side with more space.
             steer = -1.0 if min_l > min_r else 1.0
-            self.recovery_cmd = DriveCommand(v_linear=-0.3, v_lateral=0.0, v_angular=steer)
-            self.recovery_timer = int(self.control_freq * 1.5)
-            self._switch_primitive(Primitive.REVERSE)
-
-            self.active_primitive_timer += self.dt
-            return self.recovery_cmd, self.current_primitive
-
-        # 2. Proactive Escape (Behavioral Loop Detection)
-        efficiency = sum(self.visited_history) / len(self.visited_history) if len(self.visited_history) > 0 else 1.0
-
-        if len(self.visited_history) == self.window_size and efficiency < 0.005:
-            self.recovery_state = "PROACTIVE_ESCAPE"
-            if random.random() < 0.5:
-                lat = random.choice([-1.0, 1.0])
-                self.recovery_cmd = DriveCommand(v_linear=0.0, v_lateral=lat, v_angular=0.0)
-                self.recovery_timer = int(self.control_freq * 3.0)
-                self._switch_primitive(Primitive.TRAVERSE)
+            
+            if min_depth < 0.60:
+                # Very close, back up while turning
+                self.current_cmd = DriveCommand(v_linear=-0.2, v_lateral=0.0, v_angular=steer)
             else:
-                self.recovery_cmd = DriveCommand(v_linear=-0.8, v_lateral=0.0, v_angular=random.uniform(-1, 1))
-                self.recovery_timer = int(self.control_freq * 3.0)
-                self._switch_primitive(Primitive.REVERSE)
-
-            self.visited_history = []
-            self.active_primitive_timer += self.dt
-            return self.recovery_cmd, self.current_primitive
+                # Just turn in place or slight forward turn
+                self.current_cmd = DriveCommand(v_linear=0.0, v_lateral=0.0, v_angular=steer * 1.5)
+            
+            return self.current_cmd, Primitive.ACKERMANN
 
         # ─── Normal Exploration ───
-
         if self.timer <= 0:
-            new_cmd, new_prim, hold_time = self._sample_primitive(efficiency)
-
-            if new_prim != self.current_primitive:
-                self._switch_primitive(new_prim)
-
-            self.current_cmd = new_cmd
+            self.current_cmd, _, hold_time = self._sample_primitive(1.0)
             self.timer = int(self.control_freq * hold_time)
-
         else:
-            self.current_cmd = self._modulate_primitive(self.current_cmd, self.current_primitive)
+            self.current_cmd = self._modulate_primitive(self.current_cmd, Primitive.ACKERMANN)
 
         self.timer -= 1
-        self.active_primitive_timer += self.dt
-        return self.current_cmd, self.current_primitive
+        return self.current_cmd, Primitive.ACKERMANN
 
     @abc.abstractmethod
     def _sample_primitive(self, efficiency: float) -> tuple:
