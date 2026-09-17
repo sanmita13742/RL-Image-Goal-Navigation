@@ -94,7 +94,7 @@ class ExplorationRunner:
         logger.info(f"  Total steps  : {self._total_steps}")
         logger.info(f"  Control freq : {self._control_freq} Hz")
         logger.info(f"  Dry-run      : {self._robot.dry_run}")
-        logger.info(f"  Armed        : {self._safety.is_armed}")
+        logger.info(f"  Armed        : {not self._robot.dry_run}")
         logger.info("=" * 60)
 
         # Open the data recorder

@@ -52,9 +52,9 @@ exploration:
   pink_noise_beta: 1          # MINav paper: β=1
 
 safety:
-  camera_timeout_s: 2.0       # e-stop if no camera frame for this long
-  odom_timeout_s: 2.0         # e-stop if no odom for this long
-  lidar_timeout_s: 3.0        # e-stop if no lidar for this long
+  camera_timeout_s: 3.0       # e-stop if no camera frame for this long
+  odom_timeout_s: 5.0         # e-stop if no odom for this long
+  lidar_timeout_s: 5.0        # e-stop if no lidar for this long
   watchdog_hz: 5              # safety check frequency
 
 # Downstream pipeline (identical to MuJoCo — reuses same modules)

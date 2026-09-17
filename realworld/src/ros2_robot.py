@@ -118,6 +118,7 @@ class ROS2RangerMiniV3(Node):
 
     def _odom_callback(self, msg: Odometry) -> None:
         """Update internal pose from odometry message."""
+        import time as _time
         yaw = _quaternion_to_yaw(msg.pose.pose.orientation)
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
 
@@ -129,7 +130,7 @@ class ROS2RangerMiniV3(Node):
                 timestamp_sec=stamp,
             )
             self._odom_received = True
-            self._last_odom_time = stamp
+            self._last_odom_time = _time.time()  # wall-clock for SafetyMonitor
 
     def get_pose(self) -> RobotPose:
         """Return the latest robot pose (thread-safe copy)."""
