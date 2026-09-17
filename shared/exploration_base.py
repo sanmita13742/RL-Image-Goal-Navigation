@@ -107,21 +107,28 @@ class BaseExploration(abc.ABC):
 
         # ─── Simple Collision Avoidance ───
         if min_depth < 0.80:
-            # We are close to an obstacle. Turn towards the side with more space.
+        # ─── Collision Recovery State Machine ───
+        if self.recovery_timer > 0:
+            self.recovery_timer -= 1
+            return self.recovery_cmd, Primitive.REVERSE
+
+        if min_depth < 0.80:
+            # We are close to an obstacle. Execute a human-like car escape maneuver.
+            # Steer towards the side with more space while backing up.
             steer = -1.0 if min_l > min_r else 1.0
             
-            if min_depth < 0.60:
-                # Very close, back up while turning
-                self.current_cmd = DriveCommand(v_linear=-0.2, v_lateral=0.0, v_angular=steer)
-            else:
-                # Just turn in place or slight forward turn
-                self.current_cmd = DriveCommand(v_linear=0.0, v_lateral=0.0, v_angular=steer * 1.5)
+            # Shift into reverse and steer away
+            self.recovery_cmd = DriveCommand(v_linear=-0.25, v_lateral=0.0, v_angular=steer)
+            self.recovery_timer = int(self.control_freq * 2.0) # Hold reverse for 2 seconds to clear it
             
-            return self.current_cmd, Primitive.ACKERMANN
+            return self.recovery_cmd, Primitive.REVERSE
 
-        # ─── Normal Exploration ───
-        # Just drive straight forward. No random steering wobble.
-        self.current_cmd = DriveCommand(v_linear=0.3, v_lateral=0.0, v_angular=0.0)
+        # ─── Normal Exploration (Pink Uniform Noise) ───
+        if self.timer <= 0:
+            self.current_cmd, _, hold_time = self._sample_primitive(1.0)
+            self.timer = int(self.control_freq * hold_time)
+
+        self.timer -= 1
         return self.current_cmd, Primitive.ACKERMANN
 
     @abc.abstractmethod
@@ -138,69 +145,25 @@ class BaseExploration(abc.ABC):
 # ============================================================
 
 class PrimitiveExplorationPolicy(BaseExploration):
-    """Concrete exploration policy using pink-noise-modulated motion primitives.
-
-    This is the MINav paper's exploration strategy: 5 motion primitives
-    (Ackermann, Spin, Traverse, Diagonal, Reverse) with pink-noise-sampled
-    velocities and adaptive meta-scheduling.
-    """
+    """Concrete exploration policy using pink-noise-modulated motion."""
 
     def __init__(self, control_freq: float, beta: int = 1):
         super().__init__(control_freq)
         self.beta = beta
-
-        self.speed_noise = UniformColoredNoise(beta, range_val=(0.1, 0.4))
-        self.steer_noise = UniformColoredNoise(beta, range_val=(-1.0, 1.0))
-        self.lat_noise   = UniformColoredNoise(beta, range_val=(-1.0, 1.0))
-
-        self.base_probs = {
-            Primitive.ACKERMANN: 0.50,
-            Primitive.DIAGONAL:  0.20,
-            Primitive.TRAVERSE:  0.10,
-            Primitive.SPIN:      0.10,
-            Primitive.REVERSE:   0.10,
-        }
-
-    def _predict_cell(self, prim: Primitive, dist: float = 1.5) -> tuple:
-        """Roughly predict the future cell if this primitive is chosen."""
-        px, py = self.x, self.y
-        if prim == Primitive.ACKERMANN:
-            px += math.cos(self.yaw) * dist
-            py += math.sin(self.yaw) * dist
-        elif prim == Primitive.REVERSE:
-            px -= math.cos(self.yaw) * dist
-            py -= math.sin(self.yaw) * dist
-        elif prim == Primitive.TRAVERSE:
-            px += math.cos(self.yaw - math.pi/2) * dist
-            py += math.sin(self.yaw - math.pi/2) * dist
-        elif prim == Primitive.DIAGONAL:
-            px += math.cos(self.yaw - math.pi/4) * dist
-            py += math.sin(self.yaw - math.pi/4) * dist
-
-        return (int(math.floor(px / self.grid_res)), int(math.floor(py / self.grid_res)))
+        # Safe indoor speeds
+        self.speed_noise = UniformColoredNoise(beta, range_val=(0.15, 0.35))
+        self.steer_noise = UniformColoredNoise(beta, range_val=(-0.8, 0.8))
 
     def _sample_primitive(self, efficiency: float) -> tuple:
-        # SIMPLIFIED MODE FOR REAL WORLD: 
-        # Only use ACKERMANN (forward/turn) for normal exploration.
-        # Ignore the complex visit grid and primitive switching.
-        prim = Primitive.ACKERMANN
+        """Sample a new sweeping arc from the pink noise generator."""
+        cmd = DriveCommand(
+            v_linear=self.speed_noise.sample(),
+            v_lateral=0.0,
+            v_angular=self.steer_noise.sample()
+        )
+        # Hold this arc for 1 to 3 seconds to create sweeping curves
         hold_time = random.uniform(1.0, 3.0)
-        return self._modulate_primitive(DriveCommand(), prim), prim, hold_time
+        return cmd, Primitive.ACKERMANN, hold_time
 
     def _modulate_primitive(self, cmd: DriveCommand, prim: Primitive) -> DriveCommand:
-        v = self.speed_noise.sample()
-        w = self.steer_noise.sample()
-        lat = self.lat_noise.sample()
-
-        if prim == Primitive.ACKERMANN:
-            return DriveCommand(v_linear=v, v_lateral=0.0, v_angular=w)
-        elif prim == Primitive.SPIN:
-            return DriveCommand(v_linear=0.0, v_lateral=0.0, v_angular=w * 1.5)
-        elif prim == Primitive.TRAVERSE:
-            return DriveCommand(v_linear=0.0, v_lateral=lat, v_angular=0.0)
-        elif prim == Primitive.DIAGONAL:
-            return DriveCommand(v_linear=v, v_lateral=lat, v_angular=0.0)
-        elif prim == Primitive.REVERSE:
-            return DriveCommand(v_linear=-v * 0.5, v_lateral=0.0, v_angular=w)
-
-        return DriveCommand()
+        return cmd
