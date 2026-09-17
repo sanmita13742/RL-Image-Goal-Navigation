@@ -217,11 +217,8 @@ class ExplorationRunner:
         start = time.time()
 
         while time.time() - start < timeout:
-            # Spin ROS 2 to receive messages
-            import rclpy
-            rclpy.spin_once(self._robot, timeout_sec=0.1)
-            rclpy.spin_once(self._camera, timeout_sec=0.1)
-            rclpy.spin_once(self._lidar, timeout_sec=0.1)
+            # Background executor handles spinning; just poll cached values
+            time.sleep(0.1)
 
             cam_ok = self._camera.has_frame
             odom_ok = self._robot.odom_received

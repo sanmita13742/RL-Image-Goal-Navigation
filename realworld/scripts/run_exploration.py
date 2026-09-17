@@ -143,9 +143,9 @@ def main():
             robot=robot,
             camera=camera,
             lidar=lidar,
-            camera_timeout_s=safety_cfg.get("camera_timeout_s", 2.0),
-            odom_timeout_s=safety_cfg.get("odom_timeout_s", 2.0),
-            lidar_timeout_s=safety_cfg.get("lidar_timeout_s", 3.0),
+            camera_timeout_s=safety_cfg.get("camera_timeout_s", 3.0),
+            odom_timeout_s=safety_cfg.get("odom_timeout_s", 5.0),
+            lidar_timeout_s=safety_cfg.get("lidar_timeout_s", 5.0),
         )
 
         explore_cfg = config.get("exploration", {})
@@ -166,6 +166,17 @@ def main():
             beta=explore_cfg.get("pink_noise_beta", 1),
         )
 
+        # Spin all ROS 2 nodes in a background thread so callbacks
+        # (camera, odom, lidar) fire continuously during the control loop.
+        import threading
+        executor = MultiThreadedExecutor()
+        executor.add_node(robot)
+        executor.add_node(camera)
+        executor.add_node(lidar)
+        spin_thread = threading.Thread(target=executor.spin, daemon=True)
+        spin_thread.start()
+        logger.info("Background ROS 2 executor started.")
+
         # Run exploration
         success = runner.run()
 
@@ -178,6 +189,7 @@ def main():
     except KeyboardInterrupt:
         logger.warning("Interrupted by user")
     finally:
+        executor.shutdown()
         rclpy.shutdown()
 
 
