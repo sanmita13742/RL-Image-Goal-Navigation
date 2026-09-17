@@ -83,7 +83,7 @@ class ExplorationRunner:
         self._fallback_depth = np.full((60, 640), 10.0, dtype=np.float32)
         self._max_range = 10.0
         # Minimum near-range pixels per image third to count as a real obstacle
-        self._min_obstacle_pixels = 150
+        self._min_obstacle_pixels = 50
 
     def _filter_sparse_depth(self, depth: np.ndarray) -> np.ndarray:
         """Filter sparse near-range noise from the LiDAR depth image.
