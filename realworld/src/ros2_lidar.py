@@ -1,7 +1,7 @@
 """
 realworld/src/ros2_lidar.py — ROS 2 RoboSense LiDAR → depth image projection.
 ===============================================================================
-Subscribes to /rslidar_points (sensor_msgs/PointCloud2) and projects the
+Subscribes to /scanner/cloud (sensor_msgs/PointCloud2) and projects the
 3D point cloud into a 2D obstacle proximity image that matches the interface
 expected by the exploration policy's collision avoidance.
 
@@ -10,7 +10,7 @@ This module produces a compatible (H, W) numpy array where lower values mean
 closer obstacles, so the same thresholds (0.3m, 0.6m, 1.0m) work.
 
 Confirmed from rosbag:
-  /rslidar_points  → sensor_msgs/PointCloud2 (~10 Hz, 730 msgs / 73s)
+  /scanner/cloud  → sensor_msgs/PointCloud2 (~10 Hz, 730 msgs / 73s)
 """
 
 from __future__ import annotations
@@ -77,7 +77,7 @@ class ROS2LiDAR(Node):
     Parameters
     ----------
     topic : str
-        LiDAR topic. Default: /rslidar_points.
+        LiDAR topic. Default: /scanner/cloud.
     projection_width : int
         Output depth image width. Default: 640.
     projection_height : int
@@ -96,7 +96,7 @@ class ROS2LiDAR(Node):
 
     def __init__(
         self,
-        topic: str = "/rslidar_points",
+        topic: str = "/scanner/cloud",
         projection_width: int = 640,
         projection_height: int = 60,
         max_range: float = 10.0,

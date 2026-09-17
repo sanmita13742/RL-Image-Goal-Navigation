@@ -79,7 +79,7 @@ class TestROS2Connectivity:
             node.destroy_node()
 
     def test_lidar_topic_exists(self):
-        """Verify /rslidar_points topic is active."""
+        """Verify /scanner/cloud topic is active."""
         import rclpy
         from rclpy.node import Node
 
@@ -89,8 +89,8 @@ class TestROS2Connectivity:
         try:
             topics = node.get_topic_names_and_types()
             topic_names = [t[0] for t in topics]
-            assert "/rslidar_points" in topic_names, (
-                f"/rslidar_points not found. Available topics: {topic_names}"
+            assert "/scanner/cloud" in topic_names, (
+                f"/scanner/cloud not found. Available topics: {topic_names}"
             )
         finally:
             node.destroy_node()

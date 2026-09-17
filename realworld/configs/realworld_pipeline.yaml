@@ -32,7 +32,7 @@ camera:
   height: 480
 
 lidar:
-  topic: /rslidar_points
+  topic: /scanner/cloud
   # LiDAR-to-depth projection parameters
   # Project 3D PointCloud2 into a 2D obstacle proximity image
   # matching the MuJoCo depth image interface (H, W) array

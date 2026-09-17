@@ -128,7 +128,7 @@ def main():
 
         lidar_cfg = config.get("lidar", {})
         lidar = ROS2LiDAR(
-            topic=lidar_cfg.get("topic", "/rslidar_points"),
+            topic=lidar_cfg.get("topic", "/scanner/cloud"),
             projection_width=lidar_cfg.get("projection_width", 640),
             projection_height=lidar_cfg.get("projection_height", 60),
             max_range=lidar_cfg.get("max_range", 10.0),

@@ -92,7 +92,7 @@ def sample_config():
             "height": 480,
         },
         "lidar": {
-            "topic": "/rslidar_points",
+            "topic": "/scanner/cloud",
             "projection_width": 640,
             "projection_height": 60,
             "max_range": 10.0,
