@@ -133,28 +133,13 @@ class BaseExploration(abc.ABC):
 
         # 1. Reactive Escape (Obstacles)
         if min_depth < 0.80:
-            if min_l > 1.0:
-                self.recovery_state = "REACTIVE_ESCAPE_SPIN"
-                self.recovery_cmd = DriveCommand(v_linear=0.0, v_lateral=0.0, v_angular=1.5)
-                self.recovery_timer = int(self.control_freq * 1.5)
-                self._switch_primitive(Primitive.SPIN)
-            elif min_r > 1.0:
-                self.recovery_state = "REACTIVE_ESCAPE_SPIN"
-                self.recovery_cmd = DriveCommand(v_linear=0.0, v_lateral=0.0, v_angular=-1.5)
-                self.recovery_timer = int(self.control_freq * 1.5)
-                self._switch_primitive(Primitive.SPIN)
-            elif min_depth < 0.70:
-                self.recovery_state = "REACTIVE_ESCAPE_REVERSE"
-                steer = -1.0 if min_l > min_r else 1.0
-                self.recovery_cmd = DriveCommand(v_linear=-0.8, v_lateral=0.0, v_angular=steer)
-                self.recovery_timer = int(self.control_freq * 1.5)
-                self._switch_primitive(Primitive.REVERSE)
-            else:
-                self.recovery_state = "REACTIVE_ESCAPE_SPIN"
-                spin = 1.5 if min_l > min_r else -1.5
-                self.recovery_cmd = DriveCommand(v_linear=0.0, v_lateral=0.0, v_angular=spin)
-                self.recovery_timer = int(self.control_freq * 1.0)
-                self._switch_primitive(Primitive.SPIN)
+            self.recovery_state = "REACTIVE_ESCAPE_REVERSE"
+            # Steer towards the side that has MORE space while backing up
+            # If left is open, steer right while reversing so the front points left
+            steer = -1.0 if min_l > min_r else 1.0
+            self.recovery_cmd = DriveCommand(v_linear=-0.3, v_lateral=0.0, v_angular=steer)
+            self.recovery_timer = int(self.control_freq * 1.5)
+            self._switch_primitive(Primitive.REVERSE)
 
             self.active_primitive_timer += self.dt
             return self.recovery_cmd, self.current_primitive
