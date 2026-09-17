@@ -120,13 +120,8 @@ class BaseExploration(abc.ABC):
             return self.current_cmd, Primitive.ACKERMANN
 
         # ─── Normal Exploration ───
-        if self.timer <= 0:
-            self.current_cmd, _, hold_time = self._sample_primitive(1.0)
-            self.timer = int(self.control_freq * hold_time)
-        else:
-            self.current_cmd = self._modulate_primitive(self.current_cmd, Primitive.ACKERMANN)
-
-        self.timer -= 1
+        # Just drive straight forward. No random steering wobble.
+        self.current_cmd = DriveCommand(v_linear=0.3, v_lateral=0.0, v_angular=0.0)
         return self.current_cmd, Primitive.ACKERMANN
 
     @abc.abstractmethod
