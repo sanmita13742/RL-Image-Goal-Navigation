@@ -33,6 +33,8 @@ class TestROS2Connectivity:
         from rclpy.node import Node
 
         node = Node("test_connectivity")
+        import time
+        time.sleep(1.0)
         try:
             topics = node.get_topic_names_and_types()
             topic_names = [t[0] for t in topics]
@@ -63,6 +65,8 @@ class TestROS2Connectivity:
         from rclpy.node import Node
 
         node = Node("test_camera_topic")
+        import time
+        time.sleep(1.0)
         try:
             topics = node.get_topic_names_and_types()
             topic_names = [t[0] for t in topics]
@@ -80,6 +84,8 @@ class TestROS2Connectivity:
         from rclpy.node import Node
 
         node = Node("test_lidar_topic")
+        import time
+        time.sleep(1.0)
         try:
             topics = node.get_topic_names_and_types()
             topic_names = [t[0] for t in topics]
