@@ -81,6 +81,28 @@ class ExplorationRunner:
 
         # Fallback depth image (all far away = no obstacles)
         self._fallback_depth = np.full((60, 640), 10.0, dtype=np.float32)
+        self._max_range = 10.0
+        # Minimum near-range pixels per image third to count as a real obstacle
+        self._min_obstacle_pixels = 30
+
+    def _filter_sparse_depth(self, depth: np.ndarray) -> np.ndarray:
+        """Filter sparse near-range noise from the LiDAR depth image.
+
+        With only ~500 points in a 38400-pixel image, isolated near-range
+        pixels are noise (ground reflections, chassis returns). Only keep
+        near-range values in each image third if enough pixels support them.
+        """
+        filtered = depth.copy()
+        h, w = filtered.shape
+        threshold = self._max_range * 0.95  # anything below 9.5m is "non-empty"
+
+        for start_col, end_col in [(0, w // 3), (w // 3, 2 * w // 3), (2 * w // 3, w)]:
+            region = filtered[:, start_col:end_col]
+            near_count = (region < threshold).sum()
+            if near_count < self._min_obstacle_pixels:
+                region[:] = self._max_range
+
+        return filtered
 
     def run(self) -> bool:
         """Execute the exploration loop.
@@ -136,6 +158,11 @@ class ExplorationRunner:
                 depth = self._lidar.get_depth_image()
                 if depth is None:
                     depth = self._fallback_depth  # No obstacles if LiDAR not ready
+                else:
+                    # Density filter: with a sparse 500-point LiDAR, isolated
+                    # near-range pixels are noise. Only keep near-range readings
+                    # in each image third if enough pixels support them.
+                    depth = self._filter_sparse_depth(depth)
 
                 # 4. Get odometry
                 pose = self._robot.get_pose()
