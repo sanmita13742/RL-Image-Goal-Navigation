@@ -105,8 +105,6 @@ class BaseExploration(abc.ABC):
         if self.timer % 10 == 0:
             print(f"[DEBUG] min_l: {min_l:.2f}, min_c: {min_c:.2f}, min_r: {min_r:.2f} | min_depth: {min_depth:.2f}")
 
-        # ─── Simple Collision Avoidance ───
-        if min_depth < 0.80:
         # ─── Collision Recovery State Machine ───
         if self.recovery_timer > 0:
             self.recovery_timer -= 1
