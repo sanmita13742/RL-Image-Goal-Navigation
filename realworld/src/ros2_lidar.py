@@ -122,14 +122,9 @@ class ROS2LiDAR(Node):
         self._scan_count = 0
         self._last_scan_time: Optional[float] = None
 
-        # QoS — match rosbag profile (reliable, volatile)
-        lidar_qos = QoSProfile(
-            reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.VOLATILE,
-            depth=1,
-        )
+        from rclpy.qos import qos_profile_sensor_data
         self._sub = self.create_subscription(
-            PointCloud2, topic, self._lidar_callback, lidar_qos
+            PointCloud2, topic, self._lidar_callback, qos_profile_sensor_data
         )
 
         logger.info(f"ROS2LiDAR subscribing to: {topic}")
