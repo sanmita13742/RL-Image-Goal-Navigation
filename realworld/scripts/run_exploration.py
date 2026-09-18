@@ -38,6 +38,7 @@ from realworld.src.ros2_lidar import ROS2LiDAR
 from realworld.src.safety_monitor import SafetyMonitor
 from realworld.src.data_recorder import DataRecorder
 from realworld.src.exploration_runner import ExplorationRunner
+from shared.pink_uniform_policy import PolicyConfig
 
 
 def setup_logging(run_dir: Path) -> None:
@@ -63,6 +64,8 @@ def main():
                         help="ARM the robot for real motion (default: dry-run)")
     parser.add_argument("--smoke", action="store_true",
                         help="Run a 30-second smoke test (dry-run)")
+    parser.add_argument("--duration", type=float, default=None,
+                        help="Override exploration duration in minutes (e.g., 2.0 for a short physical test)")
     args = parser.parse_args()
 
     # Load config
@@ -86,6 +89,9 @@ def main():
         dry_run = True
         duration_minutes = config.get("smoke", {}).get("exploration_minutes", 0.5)
         logger.warning("SMOKE MODE — 30s dry-run exploration")
+    elif args.duration is not None:
+        duration_minutes = args.duration
+        logger.warning(f"OVERRIDE: Duration set to {duration_minutes} minutes via command line")
     else:
         duration_minutes = config["exploration"]["duration_minutes"]
 
@@ -155,15 +161,33 @@ def main():
             segment_size=explore_cfg.get("segment_size", 1000),
         )
 
+        # Build PolicyConfig from YAML
+        seed = config.get("run", {}).get("seed", None)
+        vx_range = tuple(explore_cfg.get("vx_range", [0.0, 0.6]))
+        vy_range = tuple(explore_cfg.get("vy_range", [-0.3, 0.3]))
+        wz_range = tuple(explore_cfg.get("wz_range", [-1.0, 1.0]))
+
+        policy_config = PolicyConfig(
+            beta=float(explore_cfg.get("pink_noise_beta", 1)),
+            policy_freq_hz=float(explore_cfg.get("policy_freq_hz", 2.0)),
+            control_freq_hz=float(explore_cfg.get("control_freq_hz", 20.0)),
+            smoothing_alpha=float(explore_cfg.get("smoothing_alpha", 0.2)),
+            vx_range=vx_range,
+            vy_range=vy_range,
+            wz_range=wz_range,
+            seed=seed,
+        )
+
         runner = ExplorationRunner(
             robot=robot,
             camera=camera,
             lidar=lidar,
             safety=safety,
             recorder=recorder,
-            control_freq_hz=explore_cfg.get("control_freq_hz", 10.0),
+            policy_config=policy_config,
             duration_minutes=duration_minutes,
-            beta=explore_cfg.get("pink_noise_beta", 1),
+            safety_gate_min_depth=float(explore_cfg.get("safety_gate_min_depth", 0.5)),
+            safety_gate_min_pixels=int(explore_cfg.get("safety_gate_min_pixels", 75)),
         )
 
         # Spin all ROS 2 nodes in a background thread so callbacks
