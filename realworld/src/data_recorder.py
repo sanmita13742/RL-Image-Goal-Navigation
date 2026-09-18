@@ -108,7 +108,9 @@ class DataRecorder:
         self._csv_writer.writerow([
             "trajectory_id", "global_step", "segment_step", "sim_time",
             "linear_vel_cmd", "lateral_vel_cmd", "angular_vel_cmd",
+            "executed_linear_vel", "executed_lateral_vel", "executed_angular_vel",
             "pos_x", "pos_y", "yaw", "rgb_path", "depth_path",
+            "safety_intervention",
         ])
         self._seg_step = 0
 
@@ -126,6 +128,8 @@ class DataRecorder:
         pos_y: float,
         yaw: float,
         wall_time: float,
+        executed_cmd: DriveCommand = None,
+        safety_blocked: bool = False,
     ) -> int:
         """Record one exploration step.
 
@@ -134,13 +138,18 @@ class DataRecorder:
         rgb_frame : np.ndarray
             RGB image (H, W, 3) uint8.
         cmd : DriveCommand
-            The velocity command sent at this step.
+            The commanded velocity (pre-safety-gate).
         pos_x, pos_y : float
             Robot position from odometry.
         yaw : float
             Robot heading from odometry.
         wall_time : float
             Wall-clock timestamp (seconds since epoch).
+        executed_cmd : DriveCommand, optional
+            The post-safety-gate velocity actually sent to the robot.
+            If None, defaults to ``cmd`` (no intervention).
+        safety_blocked : bool
+            True if the safety gate blocked this step.
 
         Returns
         -------
@@ -176,6 +185,9 @@ class DataRecorder:
         # Compute elapsed time (analogous to sim_time)
         elapsed = wall_time - self._start_time if self._start_time else 0.0
 
+        # Default executed_cmd to commanded if not provided
+        ex = executed_cmd if executed_cmd is not None else cmd
+
         # Write CSV row
         self._csv_writer.writerow([
             0,  # trajectory_id (single continuous trajectory)
@@ -185,11 +197,15 @@ class DataRecorder:
             f"{cmd.v_linear:.3f}",
             f"{cmd.v_lateral:.3f}",
             f"{cmd.v_angular:.3f}",
+            f"{ex.v_linear:.3f}",
+            f"{ex.v_lateral:.3f}",
+            f"{ex.v_angular:.3f}",
             f"{pos_x:.4f}",
             f"{pos_y:.4f}",
             f"{yaw:.4f}",
             f"rgb/{img_filename}",
             "",  # depth_path — not saved for real-world (LiDAR used directly)
+            1 if safety_blocked else 0,
         ])
 
         step = self._global_step
