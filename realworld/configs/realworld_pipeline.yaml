@@ -15,7 +15,7 @@ run:
   device: auto         # auto | cpu | cuda
 
 robot:
-  cmd_vel_topic: /cmd_vel
+  cmd_vel_topic: /minav/cmd_vel
   odom_topic: /odom
   base_frame: base_link
   # Physical action bounds (AGENTS.md):
@@ -66,6 +66,21 @@ safety:
   odom_timeout_s: 5.0         # e-stop if no odom for this long
   lidar_timeout_s: 5.0        # e-stop if no lidar for this long
   watchdog_hz: 5              # safety check frequency
+
+safety_gate:
+  input_cmd_topic: /minav/cmd_vel
+  output_cmd_topic: /cmd_vel
+  lidar_topic: /rslidar_points
+  front_min_x: 0.15           # Filter out chassis
+  front_max_x: 0.8            # Check for obstacles up to 0.8m ahead
+  lateral_min_y: -0.4         # Robot width + margin
+  lateral_max_y: 0.4          
+  min_z: -0.2                 # Filter out ground
+  max_z: 0.5                  # Ignore ceiling/high overhangs
+  stop_distance: 0.5          # Suppress forward if obstacle is within 0.5m
+  warning_distance: 0.8
+  minimum_points: 10          # Require at least 10 points to confirm obstacle
+  cloud_timeout_s: 1.0        # Fail closed if cloud is older than 1s
 
 # Downstream pipeline (identical to MuJoCo — reuses same modules)
 hindsight:
