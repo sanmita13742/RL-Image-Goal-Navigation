@@ -8,10 +8,10 @@ __pycache__/
 .idea/
 
 # Datasets & Logs
-dataset/
-data/
-runs/
-analysis_output*/
+/dataset/
+/data/
+/runs/
+/analysis_output*/
 comparison/
 whitenoise/
 *.png
