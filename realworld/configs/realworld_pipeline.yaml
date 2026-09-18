@@ -57,7 +57,7 @@ exploration:
   vy_range: [-0.3, 0.3]      # m/s — conservative crab walk (Ranger-specific)
   wz_range: [-1.0, 1.0]      # rad/s — conservative turning (Ranger-specific)
   # LiDAR safety gate — Ranger-specific engineering parameters
-  safety_gate_min_depth: 0.5  # metres — zero-out command if obstacle closer
+  safety_gate_min_depth: 0.8  # metres — must be >0.65m (LiDAR min_range blindspot)
   safety_gate_min_pixels: 75  # min near-range pixels per sector to confirm obstacle
 
 
