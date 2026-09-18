@@ -1,96 +1,158 @@
-import numpy as np
 import pytest
-from unittest.mock import Mock
+import rclpy
+import struct
+import time
+from unittest.mock import MagicMock
+from geometry_msgs.msg import Twist
+from sensor_msgs.msg import PointCloud2
 
-from realworld.src.exploration_runner import ExplorationRunner
-from shared.drive_command import DriveCommand
-from shared.pink_uniform_policy import PolicyConfig
+# Adjust path to import the node
+import sys
+from pathlib import Path
+ROOT = Path(__file__).resolve().parent.parent.parent
+sys.path.insert(0, str(ROOT))
+from realworld.src.lidar_safety_gate import LidarSafetyGate
 
+def create_cloud(points):
+    """Create a basic PointCloud2 message for testing."""
+    msg = PointCloud2()
+    msg.point_step = 16
+    data = bytearray()
+    for p in points:
+        # x, y, z, intensity
+        data.extend(struct.pack('4f', p[0], p[1], p[2], 1.0))
+    msg.data = data
+    return msg
 
-def test_directional_safety_gate():
-    """Verify that the safety gate clamps directional velocities based on obstacles,
-    but always preserves angular velocity to allow escapes.
-    """
-    policy_config = PolicyConfig(
-        beta=1.0,
-        policy_freq_hz=2.0,
-        control_freq_hz=20.0,
-        smoothing_alpha=0.2,
-        vx_range=[0.0, 0.6],
-        vy_range=[-0.3, 0.3],
-        wz_range=[-1.0, 1.0],
-        seed=42
-    )
+@pytest.fixture(scope="module")
+def ros_init():
+    rclpy.init()
+    yield
+    rclpy.shutdown()
 
-    runner = ExplorationRunner(
-        robot=Mock(),
-        camera=Mock(),
-        lidar=Mock(),
-        safety=Mock(),
-        recorder=Mock(),
-        policy_config=policy_config,
-        safety_gate_min_depth=0.5,
-        safety_gate_min_pixels=75
-    )
+@pytest.fixture
+def gate(ros_init):
+    # Set parameters to lower minimum_points to 1 for easy testing
+    from rclpy.parameter import Parameter
+    overrides = [
+        Parameter('minimum_points', Parameter.Type.INTEGER, 1)
+    ]
+    node = LidarSafetyGate(parameter_overrides=overrides)
+    
+    # Mock the publisher to capture output
+    node.cmd_pub.publish = MagicMock()
+    
+    # Mock time so cloud is never stale
+    node.last_cloud_time = time.time()
+    
+    yield node
+    node.destroy_node()
 
-    h, w = 60, 640
+def test_forward_obstacle_blocks_forward(gate):
+    # Obstacle directly in front
+    msg = create_cloud([[0.4, 0.0, 0.0]])
+    gate.lidar_callback(msg)
+    gate.last_cloud_time = time.time()
+    
+    # Command forward
+    cmd = Twist()
+    cmd.linear.x = 0.5
+    gate.cmd_callback(cmd)
+    
+    # Should be blocked
+    published = gate.cmd_pub.publish.call_args[0][0]
+    assert published.linear.x == 0.0
 
-    # Case 1: No obstacles -> No clamping
-    depth = np.full((h, w), 10.0, dtype=np.float32)
-    cmd = DriveCommand(v_linear=0.5, v_lateral=0.2, v_angular=0.8)
-    safe_cmd, blocked = runner._safety_gate(cmd, depth)
-    assert not blocked
-    assert safe_cmd.v_linear == 0.5
-    assert safe_cmd.v_lateral == 0.2
-    assert safe_cmd.v_angular == 0.8
+def test_forward_obstacle_allows_backward(gate):
+    # Obstacle directly in front
+    msg = create_cloud([[0.4, 0.0, 0.0]])
+    gate.lidar_callback(msg)
+    gate.last_cloud_time = time.time()
+    
+    # Command backward
+    cmd = Twist()
+    cmd.linear.x = -0.5
+    gate.cmd_callback(cmd)
+    
+    # Should be allowed
+    published = gate.cmd_pub.publish.call_args[0][0]
+    assert published.linear.x == -0.5
 
-    # Case 2: Front obstacle -> Clamp forward motion only
-    depth = np.full((h, w), 10.0, dtype=np.float32)
-    depth[:, 250:350] = 0.4  # Obstacle in the Front sector (w//3 to 2*w//3)
-    cmd = DriveCommand(v_linear=0.5, v_lateral=0.2, v_angular=0.8)
-    safe_cmd, blocked = runner._safety_gate(cmd, depth)
-    assert blocked
-    assert safe_cmd.v_linear == 0.0  # Clamped
-    assert safe_cmd.v_lateral == 0.2 # Preserved
-    assert safe_cmd.v_angular == 0.8 # Preserved
+def test_backward_obstacle_blocks_backward(gate):
+    # Obstacle behind
+    msg = create_cloud([[-0.4, 0.0, 0.0]])
+    gate.lidar_callback(msg)
+    gate.last_cloud_time = time.time()
+    
+    # Command backward
+    cmd = Twist()
+    cmd.linear.x = -0.5
+    gate.cmd_callback(cmd)
+    
+    # Should be blocked
+    published = gate.cmd_pub.publish.call_args[0][0]
+    assert published.linear.x == 0.0
 
-    # Case 3: Front obstacle -> Do not clamp reverse motion
-    cmd = DriveCommand(v_linear=-0.5, v_lateral=0.2, v_angular=0.8)
-    safe_cmd, blocked = runner._safety_gate(cmd, depth)
-    assert not blocked
-    assert safe_cmd.v_linear == -0.5
+def test_left_obstacle_blocks_left(gate):
+    # Obstacle to the left
+    msg = create_cloud([[0.0, 0.4, 0.0]])
+    gate.lidar_callback(msg)
+    gate.last_cloud_time = time.time()
+    
+    # Command left (crab walk)
+    cmd = Twist()
+    cmd.linear.y = 0.5
+    gate.cmd_callback(cmd)
+    
+    # Should be blocked
+    published = gate.cmd_pub.publish.call_args[0][0]
+    assert published.linear.y == 0.0
 
-    # Case 4: Right obstacle -> Clamp rightward crab walk (vy < 0)
-    depth = np.full((h, w), 10.0, dtype=np.float32)
-    depth[:, 100:200] = 0.4  # Obstacle in the Right sector (0 to w//3)
-    cmd = DriveCommand(v_linear=0.5, v_lateral=-0.3, v_angular=0.8)
-    safe_cmd, blocked = runner._safety_gate(cmd, depth)
-    assert blocked
-    assert safe_cmd.v_linear == 0.5   # Preserved
-    assert safe_cmd.v_lateral == 0.0  # Clamped
-    assert safe_cmd.v_angular == 0.8  # Preserved
+def test_diagonal_obstacle_blocks_diagonal(gate):
+    # Obstacle front-left (at 45 degrees, r=0.42 => x=0.3, y=0.3)
+    msg = create_cloud([[0.3, 0.3, 0.0]])
+    gate.lidar_callback(msg)
+    gate.last_cloud_time = time.time()
+    
+    # Command diagonal front-left
+    cmd = Twist()
+    cmd.linear.x = 0.5
+    cmd.linear.y = 0.5
+    gate.cmd_callback(cmd)
+    
+    # Should be blocked
+    published = gate.cmd_pub.publish.call_args[0][0]
+    assert published.linear.x == 0.0
+    assert published.linear.y == 0.0
 
-    # Case 5: Right obstacle -> Do not clamp leftward crab walk
-    cmd = DriveCommand(v_linear=0.5, v_lateral=0.3, v_angular=0.8)
-    safe_cmd, blocked = runner._safety_gate(cmd, depth)
-    assert not blocked
-    assert safe_cmd.v_lateral == 0.3
+def test_obstacle_outside_corridor_allows_motion(gate):
+    # Obstacle far to the right (x=0.4, y=-1.0)
+    msg = create_cloud([[0.4, -1.0, 0.0]])
+    gate.lidar_callback(msg)
+    gate.last_cloud_time = time.time()
+    
+    # Command forward
+    cmd = Twist()
+    cmd.linear.x = 0.5
+    gate.cmd_callback(cmd)
+    
+    # Should be allowed because it's outside the corridor width
+    published = gate.cmd_pub.publish.call_args[0][0]
+    assert published.linear.x == 0.5
 
-    # Case 6: Left obstacle -> Clamp leftward crab walk (vy > 0)
-    depth = np.full((h, w), 10.0, dtype=np.float32)
-    depth[:, 500:600] = 0.4  # Obstacle in the Left sector (2*w//3 to w)
-    cmd = DriveCommand(v_linear=0.5, v_lateral=0.3, v_angular=0.8)
-    safe_cmd, blocked = runner._safety_gate(cmd, depth)
-    assert blocked
-    assert safe_cmd.v_linear == 0.5   # Preserved
-    assert safe_cmd.v_lateral == 0.0  # Clamped
-    assert safe_cmd.v_angular == 0.8  # Preserved
-
-    # Case 7: Obstacles everywhere -> Clamp translational but preserve angular (wz)
-    depth = np.full((h, w), 0.1, dtype=np.float32) # Obstacles in all sectors
-    cmd = DriveCommand(v_linear=0.5, v_lateral=0.3, v_angular=0.8)
-    safe_cmd, blocked = runner._safety_gate(cmd, depth)
-    assert blocked
-    assert safe_cmd.v_linear == 0.0   # Clamped
-    assert safe_cmd.v_lateral == 0.0  # Clamped
-    assert safe_cmd.v_angular == 0.8  # PRESERVED - the escape mechanism
+def test_stale_cloud_fails_closed(gate):
+    # Setup cloud
+    msg = create_cloud([[2.0, 0.0, 0.0]]) # Safe distance
+    gate.lidar_callback(msg)
+    
+    # Command forward (normally safe)
+    cmd = Twist()
+    cmd.linear.x = 0.5
+    
+    # Artificially age the cloud
+    gate.last_cloud_time = time.time() - 2.0 # Older than timeout of 1.0s
+    gate.cmd_callback(cmd)
+    
+    # Should be blocked
+    published = gate.cmd_pub.publish.call_args[0][0]
+    assert published.linear.x == 0.0

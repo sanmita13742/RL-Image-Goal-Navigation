@@ -71,10 +71,9 @@ safety_gate:
   input_cmd_topic: /minav/cmd_vel
   output_cmd_topic: /cmd_vel
   lidar_topic: /rslidar_points
-  front_min_x: 0.15           # Filter out chassis
-  front_max_x: 0.8            # Check for obstacles up to 0.8m ahead
-  lateral_min_y: -0.4         # Robot width + margin
-  lateral_max_y: 0.4          
+  blindspot_radius: 0.15      # Filter out chassis (min radial distance)
+  corridor_half_width: 0.4    # Robot width + margin
+  min_command_speed: 0.01     # Skip checking for very slow commands
   min_z: -0.2                 # Filter out ground
   max_z: 0.5                  # Ignore ceiling/high overhangs
   stop_distance: 0.5          # Suppress forward if obstacle is within 0.5m
