@@ -72,7 +72,11 @@ safety_gate:
   output_cmd_topic: /cmd_vel
   lidar_topic: /rslidar_points
   blindspot_radius: 0.15      # Filter out chassis (min radial distance)
-  corridor_half_width: 0.4    # Robot width + margin
+  robot_length: 0.751         # Ranger Mini overall footprint length (m)
+  robot_width: 0.60           # Ranger Mini footprint width including wheels (m)
+  safety_margin: 0.1          # Margin to add around the robot footprint (m)
+  lidar_offset_x: 0.0508      # LiDAR offset forward from center (2.5 inches)
+  lidar_offset_y: 0.0         # LiDAR offset laterally from center
   min_command_speed: 0.01     # Skip checking for very slow commands
   min_z: -0.2                 # Filter out ground
   max_z: 0.5                  # Ignore ceiling/high overhangs
