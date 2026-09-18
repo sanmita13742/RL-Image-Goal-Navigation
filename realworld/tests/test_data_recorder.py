@@ -61,7 +61,8 @@ class TestDataRecorder:
         expected_headers = [
             "trajectory_id", "global_step", "segment_step", "sim_time",
             "linear_vel_cmd", "lateral_vel_cmd", "angular_vel_cmd",
-            "pos_x", "pos_y", "yaw", "rgb_path", "depth_path",
+            "executed_linear_vel", "executed_lateral_vel", "executed_angular_vel",
+            "pos_x", "pos_y", "yaw", "rgb_path", "depth_path", "safety_intervention"
         ]
         assert headers == expected_headers, f"CSV headers mismatch: {headers}"
 
@@ -69,7 +70,7 @@ class TestDataRecorder:
         """CSV row contains correct data values."""
         recorder.open()
         cmd = DriveCommand(v_linear=1.234, v_lateral=-0.567, v_angular=0.890)
-        recorder.record_step(sample_frame, cmd, 3.14, -2.71, 1.57, 1000.0)
+        recorder.record_step(sample_frame, cmd, 3.14, -2.71, 1.57, 1000.0, executed_cmd=cmd, safety_blocked=False)
         recorder.close()
 
         csv_path = recorder.session_dir / "segment_000" / "observations.csv"
@@ -84,9 +85,12 @@ class TestDataRecorder:
         assert row[4] == "1.234", f"linear_vel_cmd should be 1.234, got {row[4]}"
         assert row[5] == "-0.567"
         assert row[6] == "0.890"
-        assert row[7] == "3.1400"  # pos_x with 4 decimals
-        assert row[8] == "-2.7100"
-        assert row[10] == "rgb/000000.png"
+        assert row[7] == "1.234"
+        assert row[8] == "-0.567"
+        assert row[9] == "0.890"
+        assert row[10] == "3.1400"  # pos_x with 4 decimals
+        assert row[11] == "-2.7100"
+        assert row[13] == "rgb/000000.png"
 
     def test_image_saved_as_png(self, recorder, sample_frame):
         """Saved files are valid PNG images."""
