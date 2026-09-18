@@ -121,25 +121,39 @@ class ExplorationRunner:
         front_sector = depth[:, w // 3 : 2 * w // 3]        # -60 to +60 deg
         left_sector  = depth[:, 2 * w // 3 : w]             # +60 to +180 deg
         
+        front_px = int((front_sector < obstacle_threshold).sum())
+        right_px = int((right_sector < obstacle_threshold).sum())
+        left_px = int((left_sector < obstacle_threshold).sum())
+
+        import time
+        if not hasattr(self, '_last_debug_time') or time.time() - self._last_debug_time > 0.5:
+            f_min = front_sector.min() if front_sector.size > 0 else 10.0
+            r_min = right_sector.min() if right_sector.size > 0 else 10.0
+            l_min = left_sector.min() if left_sector.size > 0 else 10.0
+            print(f"\n--- LiDAR Safety Gate Debug ---")
+            print(f"Min Depths  : F={f_min:.2f}m, R={r_min:.2f}m, L={l_min:.2f}m")
+            print(f"Danger Pxls : F={front_px}, R={right_px}, L={left_px}  (Req >= {self._gate_min_pixels} px < {obstacle_threshold}m)")
+            self._last_debug_time = time.time()
+
         safe_vx = cmd.v_linear
         safe_vy = cmd.v_lateral
         safe_wz = cmd.v_angular
         blocked = False
 
         # 1. Front obstacle -> block forward motion
-        if (front_sector < obstacle_threshold).sum() >= self._gate_min_pixels:
+        if front_px >= self._gate_min_pixels:
             if safe_vx > 0:
                 safe_vx = 0.0
                 blocked = True
 
         # 2. Right obstacle -> block rightward crab-walk (vy < 0)
-        if (right_sector < obstacle_threshold).sum() >= self._gate_min_pixels:
+        if right_px >= self._gate_min_pixels:
             if safe_vy < 0:
                 safe_vy = 0.0
                 blocked = True
-                
+
         # 3. Left obstacle -> block leftward crab-walk (vy > 0)
-        if (left_sector < obstacle_threshold).sum() >= self._gate_min_pixels:
+        if left_px >= self._gate_min_pixels:
             if safe_vy > 0:
                 safe_vy = 0.0
                 blocked = True
