@@ -3,27 +3,46 @@ import subprocess
 import time
 import signal
 import sys
+import yaml
 from datetime import datetime
 
 def main():
     print("=" * 60)
-    print("MINav 2-Hour Dataset Bag Recorder")
+    print("MINav 2-Hour Dataset Bag Recorder (QoS Fix)")
     print("=" * 60)
 
+    # 1. Create a QoS Override file. 
+    # ROS 2 Foxy rosbag2 defaults to "Reliable" QoS. Camera topics use "Best Effort".
+    # Without this override, rosbag2 silently ignores the camera topic!
+    qos_file = "camera_qos_override.yaml"
+    qos_config = {
+        "/camera/color/image_raw": {
+            "reliability": "best_effort",
+            "durability": "volatile",
+            "history": "keep_last",
+            "depth": 10
+        }
+    }
+    
+    with open(qos_file, "w") as f:
+        yaml.dump(qos_config, f)
+        
+    print(f"Created QoS override file: {qos_file} (Allows recording Best-Effort camera feeds)")
+
     topics = [
-        "/camera/color/image_raw_10hz",
+        "/camera/color/image_raw",
         "/cmd_vel"
     ]
     
-    print("Topics to record:")
-    print(" - /camera/color/image_raw_10hz (RGB Image, 1280x720 native, Throttled to 10 Hz)")
+    print("\nTopics to record:")
+    print(" - /camera/color/image_raw (RGB Image, 1280x720 native)")
     print(" - /cmd_vel (FINAL Executed Actions)")
     print(" - Note: /rslidar_points is intentionally EXCLUDED.")
     
     print("\nExpected Rates & Storage (Estimates):")
-    print(" - RGB (10 Hz): ~27 MB/s -> ~100 GB/hr -> ~200 GB for 2 hours")
+    print(" - RGB (30 Hz): ~83 MB/s -> ~300 GB/hr -> ~600 GB for 2 hours")
     print(" - /cmd_vel (~10 Hz): Negligible")
-    print(" - Total Expected Size: ~200 GB (Ensure sufficient disk space!)")
+    print(" - Total Expected Size: ~600 GB (Ensure sufficient disk space!)")
 
     # Generate timestamped bag name
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -39,30 +58,17 @@ def main():
         print("Aborted before starting.")
         return
 
-    # Start the 10 Hz throttle node
-    throttle_cmd = [
-        "ros2", "run", "topic_tools", "throttle", "messages",
-        "/camera/color/image_raw", "10.0", "/camera/color/image_raw_10hz"
-    ]
-    print(f"\nStarting throttle: {' '.join(throttle_cmd)}")
-    
-    is_windows = sys.platform == "win32"
-    
-    if is_windows:
-        throttle_process = subprocess.Popen(throttle_cmd, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
-    else:
-        throttle_process = subprocess.Popen(throttle_cmd, preexec_fn=os.setsid)
-
-    # Give throttle node a second to spin up
-    time.sleep(1)
-
-    # Build recording command
-    cmd = ["ros2", "bag", "record", "-o", bag_name] + topics
+    # Build recording command with QoS override
+    cmd = [
+        "ros2", "bag", "record", 
+        "-o", bag_name,
+        "--qos-profile-overrides-path", qos_file
+    ] + topics
     
     print(f"\nRunning recording: {' '.join(cmd)}")
     
-    # On Windows, CREATE_NEW_PROCESS_GROUP allows sending CTRL_BREAK_EVENT
-    # On Linux, preexec_fn=os.setsid allows sending SIGINT to the process group
+    is_windows = sys.platform == "win32"
+    
     if is_windows:
         process = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_PROCESS_GROUP)
     else:
@@ -104,17 +110,6 @@ def main():
             except subprocess.TimeoutExpired:
                 print("Process didn't terminate gracefully, forcing kill...")
                 process.terminate()
-            
-            # Kill the throttle process
-            if throttle_process.poll() is None:
-                if is_windows:
-                    throttle_process.send_signal(signal.CTRL_BREAK_EVENT)
-                else:
-                    os.killpg(os.getpgid(throttle_process.pid), signal.SIGINT)
-                try:
-                    throttle_process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    throttle_process.terminate()
                 
         print(f"\nBag saved to: {os.path.abspath(bag_name)}")
         print("Done.")
