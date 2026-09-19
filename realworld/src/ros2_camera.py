@@ -63,10 +63,10 @@ class ROS2Camera(Node):
         self._frame_count = 0
         self._last_frame_time: Optional[float] = None
 
-        # QoS — best-effort for camera streams
+        # QoS — match publisher exactly based on ros2 topic info
         cam_qos = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
-            durability=DurabilityPolicy.VOLATILE,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
             depth=1,
         )
         self._sub = self.create_subscription(
