@@ -46,5 +46,9 @@ We have designed a custom 16x16m indoor navigation maze to rigorously stress-tes
 - **Pre-flight Checks**: Before arming the robot, all 11 test suites in `realworld/tests/` MUST pass via the `smoke_test.py` script. This validates topic connectivity, camera/LiDAR feeds, and action normalizations.
 - **Shared Code**: The real-world pipeline reuses the dataset building, DINOv3 encoding, hindsight relabeling, and TD3+BC training scripts from the simulation pipeline to guarantee 1:1 compatibility.
 
+## 7. Known Hardware Quirks & Fixes
+- **Camera QoS Mismatch**: The Intel RealSense driver in Foxy publishes images as `Durability: TRANSIENT_LOCAL` and `Reliability: RELIABLE`. The `ros2_camera.py` subscriber MUST strictly match this, or the exploration script will fail to initialize with `cam=False`.
+- **rosbag2 QoS Fix**: By default, Foxy's `ros2 bag record` assumes a `RELIABLE` subscriber. If you ever need to record a `BEST_EFFORT` topic, you MUST provide a QoS override YAML file to `--qos-profile-overrides-path`, otherwise `rosbag2` will silently ignore the topic. (Implemented in `record_2hr_dataset.py`).
+
 ---
 *Agent Note: When assisting the user in this repository, always reference this context to understand the system design, environment boundaries, and the progress made so far.*
