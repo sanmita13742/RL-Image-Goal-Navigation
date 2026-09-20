@@ -58,8 +58,12 @@ def build_frame_index(session_dir: Path, out_dir: Path) -> pd.DataFrame:
     for seg_dir in seg_dirs:
         csv_path = seg_dir / "segment.csv"
         if not csv_path.exists():
-            print(f"  WARNING: {csv_path} not found, skipping")
-            continue
+            csv_path = seg_dir / "observations.csv"
+            if not csv_path.exists():
+                print(f"  WARNING: neither segment.csv nor observations.csv found in {seg_dir}, skipping")
+                continue
+            else:
+                print(f"  Found observations.csv in {seg_dir.name}")
 
         df = pd.read_csv(csv_path)
         df["segment_id"]   = seg_dir.name

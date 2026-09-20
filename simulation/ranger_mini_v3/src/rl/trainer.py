@@ -63,6 +63,8 @@ class Trainer:
         )
         
         self.metrics = defaultdict(list)
+        self.best_fqe_q = -float('inf')
+        self.best_fqe_step = -1
         
     def train(self):
         batch_size = self.config['batch_size']
@@ -90,7 +92,21 @@ class Trainer:
                 self.save_checkpoint(step)
                 
             if step % self.config['fqe_frequency'] == 0 or step == total_steps:
-                self.run_fqe(step)
+                q_val = self.run_fqe(step)
+                
+                # Check if this is the best checkpoint according to FQE
+                if q_val > self.best_fqe_q:
+                    self.best_fqe_q = q_val
+                    self.best_fqe_step = step
+                    # Symlink or copy to best_checkpoint.pt
+                    import shutil
+                    src_path = self.ckpt_dir / f"checkpoint_{step}.pt"
+                    dst_path = self.ckpt_dir / "best_checkpoint.pt"
+                    if src_path.exists():
+                        shutil.copy(src_path, dst_path)
+                        print(f"New best checkpoint! (Q: {q_val:.4f})")
+                        
+        print(f"Training complete. Best checkpoint was step {self.best_fqe_step} with Q-value {self.best_fqe_q:.4f}")
                 
     def save_checkpoint(self, step):
         path = self.ckpt_dir / f"checkpoint_{step}.pt"
@@ -100,8 +116,12 @@ class Trainer:
         
     def run_fqe(self, step):
         print(f"Running FQE at step {step}...")
-        for i in range(100): # Small smoke test amount for now
+        fqe_steps = self.config.get('fqe_steps', 200)
+        final_q = 0.0
+        for i in range(fqe_steps):
             # FQE evaluates on uniform validation data
             state, action, next_state, reward, done, goal = self.dataset.sample_actor(self.config['batch_size'])
-            fqe_loss, q_val = self.fqe.train_step(state, next_state, reward, done, goal, self.agent.actor, self.agent.normalizer)
-        print(f"FQE finished. Final loss: {fqe_loss:.4f} | Q_val: {q_val:.4f}")
+            fqe_loss, q_val = self.fqe.train_step(state, next_state, reward, done, goal, self.agent.actor)
+            final_q = q_val
+        print(f"FQE finished. Final loss: {fqe_loss:.4f} | Q_val: {final_q:.4f}")
+        return final_q

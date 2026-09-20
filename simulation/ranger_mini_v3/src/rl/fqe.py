@@ -22,7 +22,7 @@ class FQE:
         self.critic_target = copy.deepcopy(self.critic)
         self.optimizer = torch.optim.Adam(self.critic.parameters(), lr=lr)
         
-    def train_step(self, state, next_state, reward, done, goal, actor, normalizer):
+    def train_step(self, state, next_state, reward, done, goal, actor):
         """
         Evaluate policy(s,g) rather than behavior action.
         """

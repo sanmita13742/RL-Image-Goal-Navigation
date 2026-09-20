@@ -12,9 +12,9 @@ class TransitionBuffer:
         print(f"Loading {parquet_path}...")
         df = pd.read_parquet(parquet_path)
         
-        self.state_idx = df[['state_t3', 'state_t2', 'state_t1', 'state_t0']].values.astype(np.int64)
-        self.next_state_idx = df[['next_t2', 'next_t1', 'next_t0', 'next_t1f']].values.astype(np.int64)
-        self.goal_idx = df['goal_idx'].values.astype(np.int64)
+        self.state_idx = df[['state_idx_t3', 'state_idx_t2', 'state_idx_t1', 'state_idx_t0']].values.astype(np.int64)
+        self.next_state_idx = df[['next_state_idx_t2', 'next_state_idx_t1', 'next_state_idx_t0', 'next_state_idx_t1_fw']].values.astype(np.int64)
+        self.goal_idx = df['goal_embedding_idx'].values.astype(np.int64)
         
         self.actions = df[['action_linear', 'action_lateral', 'action_angular']].values.astype(np.float32)
         self.rewards = df['reward'].values.astype(np.float32).reshape(-1, 1)
@@ -48,7 +48,7 @@ class MinavHindsightDataset:
         self.dataset_path = Path(dataset_path)
         self.device = device
         
-        phi_path = self.dataset_path / "dinov3" / "phi_cache.npy"
+        phi_path = self.dataset_path / "dinov3" / "phi_vectors.npy"
         print(f"Loading phi_cache from {phi_path} (mode: {feature_loading})...")
         if feature_loading == 'mmap':
             self.phi_cache = np.load(phi_path, mmap_mode='r')

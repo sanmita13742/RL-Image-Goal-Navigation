@@ -91,6 +91,19 @@ def build_geometric_dataset(
             if goal_t <= t:
                 goal_t = t + 1
 
+            row = frame_index.iloc[t]
+            seg_t = row["segment_id"]
+            
+            # Enforce: State stacking must not cross segment boundaries
+            seg_t3 = frame_index.iloc[t-3]["segment_id"]
+            if seg_t3 != seg_t:
+                continue
+                
+            # Enforce: Geometric goals must not cross segment boundaries
+            seg_goal = frame_index.iloc[goal_t]["segment_id"]
+            if seg_goal != seg_t:
+                continue
+
             state_phis      = phi_vectors[t-3 : t+1]    # [4, D]
             next_state_phis = phi_vectors[t-2 : t+2]    # [4, D]
             goal_phi        = phi_vectors[goal_t]        # [D]
@@ -99,7 +112,6 @@ def build_geometric_dataset(
             reward = int(sim >= 0.8)
             done   = reward
 
-            row = frame_index.iloc[t]
             records.append({
                 "current_global_step":   int(t),
                 "goal_global_step":      int(goal_t),

@@ -104,7 +104,15 @@ class FrozenDINOv3:
         self.model.eval()
         for p in self.model.parameters():
             p.requires_grad = False
-        print(f"  Model loaded. Parameters frozen.")
+            
+        if hasattr(self.model, "num_features"):
+            self.EMBED_DIM = self.model.num_features
+        elif hasattr(self.model, "embed_dim"):
+            self.EMBED_DIM = self.model.embed_dim
+        else:
+            self.EMBED_DIM = 384
+            
+        print(f"  Model loaded. Parameters frozen. Dim={self.EMBED_DIM}")
 
         # PAPER DOES NOT SPECIFY normalization.
         # IMPLEMENTATION CHOICE: ToTensor() only, matching encoder_v2.py
