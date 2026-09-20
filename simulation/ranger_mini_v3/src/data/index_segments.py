@@ -69,11 +69,17 @@ def build_frame_index(session_dir: Path, out_dir: Path) -> pd.DataFrame:
         df["segment_id"]   = seg_dir.name
         df["session_id"]   = session_meta.get("session_id", session_dir.name)
 
+        # Validate schema before modifying
+        if df.columns.duplicated().any():
+            dups = df.columns[df.columns.duplicated()].tolist()
+            raise ValueError(f"Duplicate columns found in {csv_path}: {dups}")
+            
+        print(f"  Validating columns in {seg_dir.name}: {len(df.columns)} columns found.")
+
         # Build absolute paths to RGB images
-        # csv has: rgb_path = "rgb/000000.png"
-        # absolute path = session_dir / segment_id / rgb_path
-        df["rgb_abs_path"] = df.apply(
-            lambda r: str(seg_dir / r["rgb_path"]), axis=1
+        # using a vectorized map to avoid empty DataFrame apply issues
+        df["rgb_abs_path"] = df["rgb_path"].astype(str).map(
+            lambda p: str((seg_dir / p).resolve())
         )
 
         frames.append(df)
