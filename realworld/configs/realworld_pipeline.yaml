@@ -87,7 +87,7 @@ safety_gate:
 
 # Downstream pipeline (identical to MuJoCo — reuses same modules)
 hindsight:
-  dino_model: dinov3_vit_s16
+  dino_model: vit_small_patch16_dinov3
   input_resolution: [448, 784]
   phi_dimension: 384
   ssd_threshold: 0.02

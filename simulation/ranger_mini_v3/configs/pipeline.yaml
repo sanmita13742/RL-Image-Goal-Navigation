@@ -9,13 +9,24 @@ map:
   path: null           # required — set via --map or here
 
 exploration:
-  duration_minutes: 120     # PAPER: ~2 hours
-  control_freq_hz: 10       # PAPER: 10 Hz
-  segment_size: 1000        # IMPLEMENTATION CHOICE: storage boundary only
+  duration_minutes: 120       # MINav: ~2 hours
+  control_freq_hz: 20         # MINav: 20 Hz velocity smoothing
+  policy_freq_hz: 2           # MINav: 2 Hz action sampling from pink noise
+  smoothing_alpha: 0.2        # LERP blending factor (implementation parameter, not from MINav)
+  segment_size: 1000          # Implementation choice: storage boundary only
+  output_subdir: exploration
+  pink_noise_beta: 1          # MINav: β=1 pink noise
+  # Ranger-specific safe indoor exploration ranges
+  vx_range: [0.0, 0.6]       # m/s — forward only (MINav maps surge to [0, vx_max])
+  vy_range: [-0.3, 0.3]      # m/s — conservative crab walk (Ranger-specific)
+  wz_range: [-1.0, 1.0]      # rad/s — conservative turning (Ranger-specific)
+  # LiDAR safety gate — Ranger-specific engineering parameters
+  safety_gate_min_depth: 0.5  # metres — zero-out command if obstacle closer
+  safety_gate_min_pixels: 75  # min near-range pixels per sector to confirm obstacle
   output_subdir: exploration
 
 hindsight:
-  dino_model: dinov3_vit_s16
+  dino_model: vit_small_patch16_dinov3
   input_resolution: [448, 784]
   phi_dimension: 384           # PAPER: CLS token dimension
   ssd_threshold: 0.02          # PAPER: scene stability threshold
