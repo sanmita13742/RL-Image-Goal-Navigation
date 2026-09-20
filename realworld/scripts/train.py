@@ -61,47 +61,26 @@ def main():
     print(f"  Steps   : {total_steps}")
     print(f"  Smoke   : {is_smoke}")
 
-    # Load dataset
-    dataset = MinavHindsightDataset(
-        dataset_path=dataset_path,
-        feature_loading=t_cfg.get("feature_loading", "ram"),
-        device=device,
-    )
+    # Build the exact config dict that Trainer expects, mapped from pipeline config
+    train_cfg = t_cfg.copy()
+    train_cfg["seed"] = config["run"]["seed"]
+    train_cfg["dataset_path"] = str(dataset_path)
+    train_cfg["output_dir"] = str(run_dir / t_cfg.get("output_subdir", "training"))
+    train_cfg["feature_loading"] = "ram" # Or mmap, hardcode ram for speed
+    train_cfg["fqe_frequency"] = train_cfg.get("checkpoint_every", 100000)
+    train_cfg["checkpoint_frequency"] = train_cfg.get("checkpoint_every", 100000)
+    train_cfg["learning_rate_actor"] = train_cfg["lr_actor"]
+    train_cfg["learning_rate_critic"] = train_cfg["lr_critic"]
 
-    # Build model
-    # state_dim = 4 frames × 384 dim = 1536
-    # goal_dim = 384
-    # action_dim = 3
-    agent = TD3_BC(
-        state_dim=4 * 384,
-        action_dim=3,
-        goal_dim=384,
-        device=device,
-        lr_actor=t_cfg.get("lr_actor", 3e-4),
-        lr_critic=t_cfg.get("lr_critic", 3e-4),
-        gamma=t_cfg.get("gamma", 0.99),
-        tau=t_cfg.get("tau", 0.005),
-        policy_delay=t_cfg.get("policy_delay", 2),
-        target_noise=t_cfg.get("target_noise", 0.2),
-        target_noise_clip=t_cfg.get("target_noise_clip", 0.5),
-        lambda_bc=t_cfg.get("lambda_bc", 0.001),
-    )
+    if is_smoke:
+        train_cfg["total_gradient_steps"] = total_steps
+        train_cfg["checkpoint_frequency"] = max(1, train_cfg["total_gradient_steps"] // 2)
+        train_cfg["fqe_frequency"] = train_cfg["checkpoint_frequency"]
 
-    # Train
-    output_dir = run_dir / t_cfg.get("output_subdir", "training")
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    trainer = Trainer(
-        agent=agent,
-        dataset=dataset,
-        output_dir=output_dir,
-        total_steps=total_steps,
-        batch_size=t_cfg.get("batch_size", 256),
-        checkpoint_frequency=t_cfg.get("checkpoint_every", 10000),
-    )
+    trainer = Trainer(train_cfg, device)
 
     trainer.train()
-    print(f"\n✓ Training complete! Checkpoints saved to {output_dir}")
+    print(f"\n✓ Training complete! Checkpoints saved to {train_cfg['output_dir']}")
 
 
 if __name__ == "__main__":
