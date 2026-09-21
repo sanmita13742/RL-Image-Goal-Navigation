@@ -148,7 +148,7 @@ def run_collection():
         # Roll segment if full
         if seg_step == TEST_SEGMENT_SIZE:
             csv_file.close()
-            n_imgs = len(list(rgb_dir.glob("*.png"))) if SAVE_IMAGES else TEST_SEGMENT_SIZE
+            n_imgs = len(list(rgb_dir.glob("*.png")) + list(rgb_dir.glob("*.jpg"))) if SAVE_IMAGES else TEST_SEGMENT_SIZE
             segment_meta.append({
                 "segment_id":   f"segment_{seg_id:03d}",
                 "global_start": seg_start_global,
@@ -203,7 +203,7 @@ def run_collection():
         seg_step += 1
 
     csv_file.close()
-    n_imgs = len(list(rgb_dir.glob("*.png"))) if SAVE_IMAGES else seg_step
+    n_imgs = len(list(rgb_dir.glob("*.png")) + list(rgb_dir.glob("*.jpg"))) if SAVE_IMAGES else seg_step
     segment_meta.append({
         "segment_id":   f"segment_{seg_id:03d}",
         "global_start": seg_start_global,
@@ -421,8 +421,8 @@ def validate(session_dir: Path):
     # ── Check 12: image resolution ────────────────────────────────────────────
     if SAVE_IMAGES:
         for seg_dir in seg_dirs[:2]:   # spot-check first 2 segments
-            rgb_imgs   = sorted((seg_dir / "rgb").glob("*.png"))
-            depth_imgs = sorted((seg_dir / "depth").glob("*.png"))
+            rgb_imgs   = sorted(list((seg_dir / "rgb").glob("*.png")) + list((seg_dir / "rgb").glob("*.jpg")))
+            depth_imgs = sorted(list((seg_dir / "depth").glob("*.png")) + list((seg_dir / "depth").glob("*.jpg")))
             if rgb_imgs:
                 img = PILImage.open(rgb_imgs[0])
                 if img.size != (320, 240):
@@ -446,7 +446,7 @@ def validate(session_dir: Path):
                 rows = list(csv.DictReader(cf))
             g_start = rows[0]["global_step"] if rows else "?"
             g_end   = rows[-1]["global_step"] if rows else "?"
-            n_imgs  = len(list((seg_dir/"rgb").glob("*.png"))) if SAVE_IMAGES else "?"
+            n_imgs  = len(list((seg_dir/"rgb").glob("*.png")) + list((seg_dir/"rgb").glob("*.jpg"))) if SAVE_IMAGES else "?"
             print(f"    {seg_dir.name}: {len(rows)} steps | "
                   f"global {g_start}–{g_end} | {n_imgs} images")
 

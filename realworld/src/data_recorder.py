@@ -188,8 +188,8 @@ class DataRecorder:
                 self._open_segment()
 
             # Save RGB image
-            img_filename = f"{self._seg_step:06d}.png"
-            Image.fromarray(rgb_frame).save(self._rgb_dir / img_filename)
+            img_filename = f"{self._seg_step:06d}.jpg"
+            Image.fromarray(rgb_frame).save(self._rgb_dir / img_filename, format="JPEG", quality=90)
 
             # Compute elapsed time (analogous to sim_time)
             elapsed = wall_time - self._start_time if self._start_time else 0.0
@@ -251,7 +251,11 @@ class DataRecorder:
         if not self._is_open:
             return
 
-        # Stop worker thread and wait for queue to empty
+        # Wait for all queued frames to be written
+        if self._worker_thread is not None and self._worker_thread.is_alive():
+            self._queue.join()
+
+        # Stop worker thread
         self._stop_event.set()
         if self._worker_thread is not None:
             self._worker_thread.join()

@@ -204,6 +204,9 @@ class ExplorationRunner:
         step_count = 0
         dts = []
         last_loop_start = start_time
+        
+        last_record_wall_time = 0.0
+        last_record_cam_time = None
 
         try:
             for step in range(self._total_steps):
@@ -236,19 +239,22 @@ class ExplorationRunner:
                 # 6. Send the (possibly blocked) command to the robot
                 self._robot.send_command(executed_cmd)
 
-                # 7. Record data ONLY if we got a genuinely new camera frame
-                if rgb is not None:
-                    self._recorder.record_step(
-                        rgb_frame=rgb,
-                        cmd=cmd,
-                        pos_x=pose.x,
-                        pos_y=pose.y,
-                        yaw=pose.yaw,
-                        wall_time=cam_time,
-                        executed_cmd=executed_cmd,
-                        safety_blocked=safety_blocked,
-                    )
-                    step_count += 1
+                # 7. Record data ONLY if new frame AND 10 Hz maximum sampling rate
+                if rgb is not None and cam_time != last_record_cam_time:
+                    if time.time() - last_record_wall_time >= 0.1:
+                        self._recorder.record_step(
+                            rgb_frame=rgb,
+                            cmd=cmd,
+                            pos_x=pose.x,
+                            pos_y=pose.y,
+                            yaw=pose.yaw,
+                            wall_time=cam_time,
+                            executed_cmd=executed_cmd,
+                            safety_blocked=safety_blocked,
+                        )
+                        step_count += 1
+                        last_record_cam_time = cam_time
+                        last_record_wall_time = time.time()
 
                 # Log progress based on the 20 Hz control loop ticks
                 if step > 0 and step % 100 == 0:

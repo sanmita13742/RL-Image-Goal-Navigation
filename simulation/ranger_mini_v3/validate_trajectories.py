@@ -205,7 +205,7 @@ def run_short_collection():
                     robot.apply_command(cmd)
                     robot.step()
 
-        num_images = len(list(rgb_dir.glob("*.png"))) if SAVE_IMAGES else TEST_STEPS_PER_EPISODE
+        num_images = len(list(rgb_dir.glob("*.png")) + list(rgb_dir.glob("*.jpg"))) if SAVE_IMAGES else TEST_STEPS_PER_EPISODE
         trajectory_meta.append({
             "trajectory_id": traj_name,
             "num_steps":     TEST_STEPS_PER_EPISODE,
@@ -369,8 +369,8 @@ def validate(session_dir: Path):
 
         # Check 12: image resolution
         if SAVE_IMAGES:
-            rgb_imgs  = sorted((traj_dir / "rgb").glob("*.png"))
-            depth_imgs = sorted((traj_dir / "depth").glob("*.png"))
+            rgb_imgs  = sorted(list((traj_dir / "rgb").glob("*.png")) + list((traj_dir / "rgb").glob("*.jpg")))
+            depth_imgs = sorted(list((traj_dir / "depth").glob("*.png")) + list((traj_dir / "depth").glob("*.jpg")))
 
             if rgb_imgs:
                 img = Image.open(rgb_imgs[0])
@@ -388,7 +388,7 @@ def validate(session_dir: Path):
                         f"Check 12 FAIL: Depth resolution {img.size}, expected (640, 60)"
                     )
 
-        n_imgs = len(list((traj_dir / "rgb").glob("*.png"))) if SAVE_IMAGES else num_rows
+        n_imgs = len(list((traj_dir / "rgb").glob("*.png")) + list((traj_dir / "rgb").glob("*.jpg"))) if SAVE_IMAGES else num_rows
         final_row = rows[-1] if rows else {}
         terminated_final = final_row.get("terminated", "False") in ("True", "true", "1")
         truncated_final  = final_row.get("truncated", "True")   in ("True", "true", "1")
