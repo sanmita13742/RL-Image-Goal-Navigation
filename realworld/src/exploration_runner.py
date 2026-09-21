@@ -218,11 +218,7 @@ class ExplorationRunner:
                     break
 
                 # 2. Get camera frame
-                rgb = self._camera.get_frame()
-                if rgb is None:
-                    logger.warning(f"Step {step}: no camera frame, skipping")
-                    time.sleep(self._control_period)
-                    continue
+                rgb, cam_time = self._camera.get_frame()
 
                 # 3. Get odometry (for logging only — NOT fed to policy)
                 pose = self._robot.get_pose()
@@ -240,34 +236,41 @@ class ExplorationRunner:
                 # 6. Send the (possibly blocked) command to the robot
                 self._robot.send_command(executed_cmd)
 
-                # 7. Record data: commanded, executed, odom, safety flag
-                self._recorder.record_step(
-                    rgb_frame=rgb,
-                    cmd=cmd,
-                    pos_x=pose.x,
-                    pos_y=pose.y,
-                    yaw=pose.yaw,
-                    wall_time=time.time(),
-                    executed_cmd=executed_cmd,
-                    safety_blocked=safety_blocked,
-                )
-
-                step_count += 1
-
-                # Log progress
-                if step_count % 100 == 0:
-                    elapsed = time.time() - start_time
-                    pct = 100.0 * step_count / self._total_steps
-                    gate_pct = (
-                        100.0 * self._gate_block_count / step_count
-                        if step_count > 0 else 0.0
+                # 7. Record data ONLY if we got a genuinely new camera frame
+                if rgb is not None:
+                    self._recorder.record_step(
+                        rgb_frame=rgb,
+                        cmd=cmd,
+                        pos_x=pose.x,
+                        pos_y=pose.y,
+                        yaw=pose.yaw,
+                        wall_time=cam_time,
+                        executed_cmd=executed_cmd,
+                        safety_blocked=safety_blocked,
                     )
+                    step_count += 1
+
+                # Log progress based on the 20 Hz control loop ticks
+                if step > 0 and step % 100 == 0:
+                    elapsed = time.time() - start_time
+                    pct = 100.0 * step / self._total_steps
+                    gate_pct = (
+                        100.0 * self._gate_block_count / step
+                        if step > 0 else 0.0
+                    )
+                    
+                    recent_dts = dts[-100:]
+                    loop_rate = len(recent_dts) / sum(recent_dts) if sum(recent_dts) > 0 else 0.0
+                    last_cam = self._camera.last_frame_time
+                    cam_age = (time.time() - last_cam) if last_cam else 0.0
+                    
                     logger.info(
-                        f"[{step_count:06d}/{self._total_steps}] "
+                        f"[{step:06d}/{self._total_steps}] "
                         f"{pct:.1f}% | "
                         f"vx={cmd.v_linear:+.2f} vy={cmd.v_lateral:+.2f} "
                         f"ω={cmd.v_angular:+.2f} | "
                         f"pos=({pose.x:.2f}, {pose.y:.2f}) | "
+                        f"loop={loop_rate:.1f}Hz age={cam_age*1000:.0f}ms rec={step_count} | "
                         f"gate={gate_pct:.1f}% | "
                         f"elapsed={elapsed:.0f}s"
                     )

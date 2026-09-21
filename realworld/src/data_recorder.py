@@ -25,6 +25,8 @@ import csv
 import json
 import logging
 import time
+import queue
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -50,6 +52,10 @@ class DataRecorder:
     def __init__(self, session_dir: Path, segment_size: int = 1000):
         self.session_dir = Path(session_dir)
         self.segment_size = segment_size
+        
+        self._queue = queue.Queue(maxsize=300)
+        self._worker_thread = None
+        self._stop_event = threading.Event()
 
         self._seg_id = 0
         self._seg_step = 0
@@ -93,6 +99,11 @@ class DataRecorder:
         self._open_segment()
         self._start_time = time.time()
         self._is_open = True
+        
+        self._stop_event.clear()
+        self._worker_thread = threading.Thread(target=self._worker_loop, daemon=True)
+        self._worker_thread.start()
+        
         logger.info(f"DataRecorder opened: {self.session_dir}")
 
     def _open_segment(self) -> None:
@@ -131,88 +142,84 @@ class DataRecorder:
         executed_cmd: DriveCommand = None,
         safety_blocked: bool = False,
     ) -> int:
-        """Record one exploration step.
-
-        Parameters
-        ----------
-        rgb_frame : np.ndarray
-            RGB image (H, W, 3) uint8.
-        cmd : DriveCommand
-            The commanded velocity (pre-safety-gate).
-        pos_x, pos_y : float
-            Robot position from odometry.
-        yaw : float
-            Robot heading from odometry.
-        wall_time : float
-            Wall-clock timestamp (seconds since epoch).
-        executed_cmd : DriveCommand, optional
-            The post-safety-gate velocity actually sent to the robot.
-            If None, defaults to ``cmd`` (no intervention).
-        safety_blocked : bool
-            True if the safety gate blocked this step.
-
-        Returns
-        -------
-        int
-            The global_step index of this recorded step.
+        """Record one exploration step by pushing to a background queue.
+        ...
         """
         if not self._is_open:
             raise RuntimeError("DataRecorder is not open. Call open() first.")
+            
+        try:
+            self._queue.put_nowait((
+                rgb_frame, cmd, pos_x, pos_y, yaw, wall_time, executed_cmd, safety_blocked
+            ))
+        except queue.Full:
+            logger.error("DataRecorder queue is full! Dropping frame!")
+            
+        # The caller does not rely on the exact return value
+        return 0
 
-        # Roll to new segment if needed
-        if self._seg_step >= self.segment_size:
-            self._close_segment()
-            self._segment_meta.append({
-                "segment_id": f"segment_{self._seg_id:03d}",
-                "global_start": self._seg_start_global,
-                "global_end": self._global_step - 1,
-                "num_steps": self.segment_size,
-            })
-            logger.info(
-                f"[SEG DONE] segment_{self._seg_id:03d} | "
-                f"global {self._seg_start_global}-{self._global_step - 1}"
-            )
-            self._save_metadata()
+    def _worker_loop(self) -> None:
+        """Background thread for handling disk I/O."""
+        while not self._stop_event.is_set() or not self._queue.empty():
+            try:
+                item = self._queue.get(timeout=0.1)
+            except queue.Empty:
+                continue
+                
+            (rgb_frame, cmd, pos_x, pos_y, yaw, wall_time, executed_cmd, safety_blocked) = item
+            
+            # Roll to new segment if needed
+            if self._seg_step >= self.segment_size:
+                self._close_segment()
+                self._segment_meta.append({
+                    "segment_id": f"segment_{self._seg_id:03d}",
+                    "global_start": self._seg_start_global,
+                    "global_end": self._global_step - 1,
+                    "num_steps": self.segment_size,
+                })
+                logger.info(
+                    f"[SEG DONE] segment_{self._seg_id:03d} | "
+                    f"global {self._seg_start_global}-{self._global_step - 1}"
+                )
+                self._save_metadata()
 
-            self._seg_id += 1
-            self._seg_start_global = self._global_step
-            self._open_segment()
+                self._seg_id += 1
+                self._seg_start_global = self._global_step
+                self._open_segment()
 
-        # Save RGB image
-        img_filename = f"{self._seg_step:06d}.png"
-        Image.fromarray(rgb_frame).save(self._rgb_dir / img_filename)
+            # Save RGB image
+            img_filename = f"{self._seg_step:06d}.png"
+            Image.fromarray(rgb_frame).save(self._rgb_dir / img_filename)
 
-        # Compute elapsed time (analogous to sim_time)
-        elapsed = wall_time - self._start_time if self._start_time else 0.0
+            # Compute elapsed time (analogous to sim_time)
+            elapsed = wall_time - self._start_time if self._start_time else 0.0
 
-        # Default executed_cmd to commanded if not provided
-        ex = executed_cmd if executed_cmd is not None else cmd
+            # Default executed_cmd to commanded if not provided
+            ex = executed_cmd if executed_cmd is not None else cmd
 
-        # Write CSV row
-        self._csv_writer.writerow([
-            0,  # trajectory_id (single continuous trajectory)
-            self._global_step,
-            self._seg_step,
-            f"{elapsed:.3f}",
-            f"{cmd.v_linear:.3f}",
-            f"{cmd.v_lateral:.3f}",
-            f"{cmd.v_angular:.3f}",
-            f"{ex.v_linear:.3f}",
-            f"{ex.v_lateral:.3f}",
-            f"{ex.v_angular:.3f}",
-            f"{pos_x:.4f}",
-            f"{pos_y:.4f}",
-            f"{yaw:.4f}",
-            f"rgb/{img_filename}",
-            "",  # depth_path — not saved for real-world (LiDAR used directly)
-            1 if safety_blocked else 0,
-        ])
+            # Write CSV row
+            self._csv_writer.writerow([
+                0,  # trajectory_id (single continuous trajectory)
+                self._global_step,
+                self._seg_step,
+                f"{elapsed:.3f}",
+                f"{cmd.v_linear:.3f}",
+                f"{cmd.v_lateral:.3f}",
+                f"{cmd.v_angular:.3f}",
+                f"{ex.v_linear:.3f}",
+                f"{ex.v_lateral:.3f}",
+                f"{ex.v_angular:.3f}",
+                f"{pos_x:.4f}",
+                f"{pos_y:.4f}",
+                f"{yaw:.4f}",
+                f"rgb/{img_filename}",
+                "",  # depth_path — not saved for real-world (LiDAR used directly)
+                1 if safety_blocked else 0,
+            ])
 
-        step = self._global_step
-        self._global_step += 1
-        self._seg_step += 1
-
-        return step
+            self._global_step += 1
+            self._seg_step += 1
+            self._queue.task_done()
 
     def _save_metadata(self) -> None:
         """Save exploration_metadata.json (incremental)."""
@@ -243,6 +250,11 @@ class DataRecorder:
         """Finalize the recording session."""
         if not self._is_open:
             return
+
+        # Stop worker thread and wait for queue to empty
+        self._stop_event.set()
+        if self._worker_thread is not None:
+            self._worker_thread.join()
 
         # Close final segment
         self._close_segment()

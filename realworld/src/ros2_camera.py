@@ -62,6 +62,7 @@ class ROS2Camera(Node):
         self._frame_lock = threading.Lock()
         self._frame_count = 0
         self._last_frame_time: Optional[float] = None
+        self._frame_consumed = False
 
         # QoS — match publisher exactly based on ros2 topic info
         cam_qos = QoSProfile(
@@ -102,6 +103,7 @@ class ROS2Camera(Node):
                 self._frame = frame
                 self._frame_count += 1
                 self._last_frame_time = time.time()
+                self._frame_consumed = False
 
                 if self._frame_count == 1:
                     logger.info(
@@ -112,12 +114,16 @@ class ROS2Camera(Node):
         except Exception as e:
             logger.error(f"Camera frame decode error: {e}")
 
-    def get_frame(self) -> Optional[np.ndarray]:
-        """Return the latest camera frame (H, W, 3) uint8 RGB, or None."""
+    def get_frame(self) -> tuple[Optional[np.ndarray], Optional[float]]:
+        """Return the latest unconsumed camera frame and its timestamp.
+        
+        Returns (None, None) if no new frame has arrived since the last call.
+        """
         with self._frame_lock:
-            if self._frame is None:
-                return None
-            return self._frame.copy()
+            if self._frame is None or self._frame_consumed:
+                return None, None
+            self._frame_consumed = True
+            return self._frame.copy(), self._last_frame_time
 
     @property
     def frame_count(self) -> int:
