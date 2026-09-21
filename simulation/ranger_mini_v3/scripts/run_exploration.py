@@ -12,12 +12,15 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT.parent.parent))
 
 import mujoco
+import mujoco.viewer
 from PIL import Image
 
 from robot import RangerMiniV3Robot
-from exploration_policies import PrimitiveExplorationPolicy
+from shared.pink_uniform_policy import PinkUniformNoisePolicy, PolicyConfig
+from shared.drive_command import DriveCommand
 from test_env import build_world_xml
 from scripts.pipeline_utils import setup_pipeline_logger, update_pipeline_state
 
@@ -52,9 +55,24 @@ def open_segment(session_dir: Path, seg_id: int):
     writer.writerow([
         "trajectory_id", "global_step", "segment_step", "sim_time",
         "linear_vel_cmd", "lateral_vel_cmd", "angular_vel_cmd",
+        "executed_linear_vel", "executed_lateral_vel", "executed_angular_vel",
         "pos_x", "pos_y", "yaw", "rgb_path", "depth_path",
+        "safety_intervention",
     ])
     return seg_dir, rgb_dir, depth_dir, csv_file, writer
+
+def _safety_gate(cmd: DriveCommand, depth: np.ndarray, min_depth: float, min_pixels: int) -> tuple[DriveCommand, bool]:
+    h, w = depth.shape
+    obstacle_threshold = min_depth
+    sectors = [(0, w // 3), (w // 3, 2 * w // 3), (2 * w // 3, w)]
+    
+    for start_col, end_col in sectors:
+        region = depth[:, start_col:end_col]
+        near_count = (region < obstacle_threshold).sum()
+        if near_count >= min_pixels:
+            return DriveCommand(0.0, 0.0, 0.0), True
+            
+    return cmd, False
 
 def main():
     parser = argparse.ArgumentParser()
@@ -62,6 +80,7 @@ def main():
     parser.add_argument("--run-dir", type=str, required=True)
     parser.add_argument("--map", type=str, required=True)
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--gui", action="store_true", help="Launch MuJoCo viewer")
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir).resolve()
@@ -83,6 +102,9 @@ def main():
         control_freq = config["exploration"]["control_freq_hz"]
         segment_size = config["exploration"]["segment_size"]
         out_subdir = config["exploration"]["output_subdir"]
+        
+        gate_min_depth = config["exploration"]["safety_gate_min_depth"]
+        gate_min_pixels = config["exploration"]["safety_gate_min_pixels"]
         
         total_steps = int(duration_minutes * 60 * control_freq)
         
@@ -119,7 +141,17 @@ def main():
         sim_dt = robot.model.opt.timestep
         sim_steps_per_control = int(1.0 / (control_freq * sim_dt))
 
-        policy = PrimitiveExplorationPolicy(control_freq, beta=1)
+        policy_config = PolicyConfig(
+            beta=config["exploration"]["pink_noise_beta"],
+            policy_freq_hz=config["exploration"]["policy_freq_hz"],
+            control_freq_hz=control_freq,
+            smoothing_alpha=config["exploration"]["smoothing_alpha"],
+            vx_range=tuple(config["exploration"]["vx_range"]),
+            vy_range=tuple(config["exploration"]["vy_range"]),
+            wz_range=tuple(config["exploration"]["wz_range"]),
+        )
+        policy = PinkUniformNoisePolicy(policy_config)
+        gate_block_count = 0
         
         seg_id = 0
         seg_step = 0
@@ -178,6 +210,10 @@ def main():
 
         seg_dir, rgb_dir, depth_dir, csv_file, writer = open_segment(session_dir, seg_id)
         
+        viewer = None
+        if args.gui:
+            viewer = mujoco.viewer.launch_passive(robot.model, robot.data)
+            
         start_time = time.time()
         
         for global_step in range(seg_start_global, total_steps):
@@ -208,7 +244,10 @@ def main():
             qw, qx, qy, qz = robot.data.qpos[3:7]
             _, _, yaw = euler_from_quaternion(qw, qx, qy, qz)
             
-            cmd, prim = policy.get_action(depth_img, pos_x, pos_y, yaw)
+            cmd = policy.get_action()
+            executed_cmd, safety_blocked = _safety_gate(cmd, depth_img, gate_min_depth, gate_min_pixels)
+            if safety_blocked:
+                gate_block_count += 1
             
             img_filename = f"{seg_step:06d}.png"
             Image.fromarray(rgb_img).save(rgb_dir / img_filename)
@@ -218,20 +257,29 @@ def main():
             writer.writerow([
                 0, global_step, seg_step, f"{sim_time:.3f}",
                 f"{cmd.v_linear:.3f}", f"{cmd.v_lateral:.3f}", f"{cmd.v_angular:.3f}",
+                f"{executed_cmd.v_linear:.3f}", f"{executed_cmd.v_lateral:.3f}", f"{executed_cmd.v_angular:.3f}",
                 f"{pos_x:.4f}", f"{pos_y:.4f}", f"{yaw:.4f}",
-                f"rgb/{img_filename}", f"depth/{img_filename}"
+                f"rgb/{img_filename}", f"depth/{img_filename}",
+                1 if safety_blocked else 0
             ])
             
             if global_step % 100 == 0:
-                logger.info(f"[g={global_step:06d}] {prim.name} v={cmd.v_linear:+.2f} w={cmd.v_angular:+.2f}")
+                gate_pct = 100.0 * gate_block_count / max(1, global_step)
+                logger.info(f"[g={global_step:06d}] vx={cmd.v_linear:+.2f} wy={cmd.v_angular:+.2f} | gate={gate_pct:.1f}%")
                 
             for _ in range(sim_steps_per_control):
-                robot.apply_command(cmd)
+                robot.apply_command(executed_cmd)
                 robot.step()
+            
+            if viewer is not None:
+                viewer.sync()
                 
             seg_step += 1
             
         csv_file.close()
+        
+        if viewer is not None:
+            viewer.close()
         segment_meta.append({
             "segment_id": f"segment_{seg_id:03d}",
             "global_start": seg_start_global,

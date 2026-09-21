@@ -30,7 +30,7 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
 
 import rclpy
-from rclpy.executors import MultiThreadedExecutor
+from rclpy.executors import SingleThreadedExecutor
 
 from realworld.src.ros2_robot import ROS2RangerMiniV3
 from realworld.src.ros2_camera import ROS2Camera
@@ -193,7 +193,7 @@ def main():
         # Spin all ROS 2 nodes in a background thread so callbacks
         # (camera, odom, lidar) fire continuously during the control loop.
         import threading
-        executor = MultiThreadedExecutor()
+        executor = SingleThreadedExecutor()
         executor.add_node(robot)
         executor.add_node(camera)
         executor.add_node(lidar)

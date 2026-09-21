@@ -68,7 +68,7 @@ class ROS2Camera(Node):
         cam_qos = QoSProfile(
             reliability=ReliabilityPolicy.RELIABLE,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
-            depth=1,
+            depth=10,
         )
         self._sub = self.create_subscription(
             Image, topic, self._image_callback, cam_qos
