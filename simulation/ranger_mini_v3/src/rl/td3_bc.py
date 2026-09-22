@@ -96,8 +96,10 @@ class TD3_BC:
         # The paper (Fujimoto & Gu 2021) usually does alpha = 2.5 / abs(Q).mean(), 
         # but the prompt specifically says "lambda_bc = 0.001" and gives the exact formula.
         
-        actor_loss = -Q.mean() + lmbda * F.mse_loss(pi_norm, action_norm)
-        bc_loss = F.mse_loss(pi_norm, action_norm).item()
+        bc_loss_batch = torch.sum((pi_norm - action_norm) ** 2, dim=1)
+        bc_loss_tensor = bc_loss_batch.mean()
+        actor_loss = -Q.mean() + 0.001 * bc_loss_tensor
+        bc_loss = bc_loss_tensor.item()
 
         self.actor_optimizer.zero_grad()
         actor_loss.backward()

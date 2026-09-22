@@ -12,9 +12,14 @@ class TransitionBuffer:
         print(f"Loading {parquet_path}...")
         df = pd.read_parquet(parquet_path)
         
-        self.state_idx = df[['state_idx_t3', 'state_idx_t2', 'state_idx_t1', 'state_idx_t0']].values.astype(np.int64)
-        self.next_state_idx = df[['next_state_idx_t2', 'next_state_idx_t1', 'next_state_idx_t0', 'next_state_idx_t1_fw']].values.astype(np.int64)
-        self.goal_idx = df['goal_embedding_idx'].values.astype(np.int64)
+        if 'state_idx_t3' in df.columns:
+            self.state_idx = df[['state_idx_t3', 'state_idx_t2', 'state_idx_t1', 'state_idx_t0']].values.astype(np.int64)
+            self.next_state_idx = df[['next_state_idx_t2', 'next_state_idx_t1', 'next_state_idx_t0', 'next_state_idx_t1_fw']].values.astype(np.int64)
+            self.goal_idx = df['goal_embedding_idx'].values.astype(np.int64)
+        else:
+            self.state_idx = df[['state_t3', 'state_t2', 'state_t1', 'state_t0']].values.astype(np.int64)
+            self.next_state_idx = df[['next_t2', 'next_t1', 'next_t0', 'next_t1f']].values.astype(np.int64)
+            self.goal_idx = df['goal_idx'].values.astype(np.int64)
         
         self.actions = df[['action_linear', 'action_lateral', 'action_angular']].values.astype(np.float32)
         self.rewards = df['reward'].values.astype(np.float32).reshape(-1, 1)

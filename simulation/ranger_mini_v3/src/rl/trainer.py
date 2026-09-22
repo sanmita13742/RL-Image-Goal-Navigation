@@ -91,6 +91,24 @@ class Trainer:
             if step % self.config['checkpoint_frequency'] == 0 or step == total_steps:
                 self.save_checkpoint(step)
                 
+                with torch.no_grad():
+                    state, action, next_state, reward, done, goal = self.dataset.sample_actor(5000)
+                    pi_norm = self.agent.actor(state, goal)
+                    pi_phys = self.agent.normalizer.denormalize(pi_norm)
+                    
+                    diff = torch.abs(pi_phys - action)
+                    diff_mean = diff.mean(dim=0).cpu().numpy()
+                    l2_dist = torch.norm(pi_phys - action, dim=1).mean().item()
+                    pi_phys_np = pi_phys.cpu().numpy()
+                    
+                    print(f"\n--- Checkpoint {step} Diagnostics ---")
+                    print(f"Actor vs Dataset L2 Dist: {l2_dist:.4f}")
+                    print(f"Mean Abs Diff |pi - a|  : vx={diff_mean[0]:.4f}, vy={diff_mean[1]:.4f}, wz={diff_mean[2]:.4f}")
+                    print(f"Actor vx (mean/std/min/max): {pi_phys_np[:,0].mean():.4f}/{pi_phys_np[:,0].std():.4f}/{pi_phys_np[:,0].min():.4f}/{pi_phys_np[:,0].max():.4f}")
+                    print(f"Actor vy (mean/std/min/max): {pi_phys_np[:,1].mean():.4f}/{pi_phys_np[:,1].std():.4f}/{pi_phys_np[:,1].min():.4f}/{pi_phys_np[:,1].max():.4f}")
+                    print(f"Actor wz (mean/std/min/max): {pi_phys_np[:,2].mean():.4f}/{pi_phys_np[:,2].std():.4f}/{pi_phys_np[:,2].min():.4f}/{pi_phys_np[:,2].max():.4f}")
+                    print(f"-----------------------------------\n")
+                
             if step % self.config['fqe_frequency'] == 0 or step == total_steps:
                 q_val = self.run_fqe(step)
                 
