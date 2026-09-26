@@ -87,18 +87,12 @@ class TD3_BC:
         Q = self.critic.q1_forward(state, pi_norm, goal)
         
         # BC loss in normalized action space
-        # L = -lambda * Q + MSE(pi, a_behavior)
-        # In TD3+BC paper, alpha = lambda_bc / (abs(Q).mean()).detach()
-        # Wait, the prompt explicitly said:
-        # L_actor = -Q1(s, actor(s,g), g) + lambda_bc * MSE(actor(s,g), behavior_action)
-        # We will use exactly what the prompt specified.
-        lmbda = self.lambda_bc
-        # The paper (Fujimoto & Gu 2021) usually does alpha = 2.5 / abs(Q).mean(), 
-        # but the prompt specifically says "lambda_bc = 0.001" and gives the exact formula.
-        
         bc_loss_batch = torch.sum((pi_norm - action_norm) ** 2, dim=1)
         bc_loss_tensor = bc_loss_batch.mean()
-        actor_loss = -Q.mean() + 0.001 * bc_loss_tensor
+        
+        # Adaptive alpha for TD3+BC to prevent Q-value explosion
+        alpha = self.lambda_bc / (Q.abs().mean().detach() + 1e-5)
+        actor_loss = -Q.mean() + alpha * bc_loss_tensor
         bc_loss = bc_loss_tensor.item()
 
         self.actor_optimizer.zero_grad()
