@@ -13,10 +13,12 @@ Output structure (identical to MuJoCo run_exploration.py):
             ...
         exploration_metadata.json
 
-CSV columns (matching MuJoCo):
-    trajectory_id, global_step, segment_step, sim_time,
-    linear_vel_cmd, lateral_vel_cmd, angular_vel_cmd,
-    pos_x, pos_y, yaw, rgb_path, depth_path
+CSV columns (strictly limited to real-world dataset requirement):
+    timestamp, image_path,
+    target_vx, target_vy, target_wz,
+    cmd_vx, cmd_vy, cmd_wz,
+    executed_vx, executed_vy, executed_wz,
+    safety_blocked, obstacle_distance
 """
 
 from __future__ import annotations
@@ -117,11 +119,11 @@ class DataRecorder:
         self._csv_file = open(csv_path, mode="w", newline="", encoding="utf-8")
         self._csv_writer = csv.writer(self._csv_file)
         self._csv_writer.writerow([
-            "trajectory_id", "global_step", "segment_step", "sim_time",
-            "linear_vel_cmd", "lateral_vel_cmd", "angular_vel_cmd",
-            "executed_linear_vel", "executed_lateral_vel", "executed_angular_vel",
-            "pos_x", "pos_y", "yaw", "rgb_path", "depth_path",
-            "safety_intervention",
+            "timestamp", "image_path",
+            "target_vx", "target_vy", "target_wz",
+            "cmd_vx", "cmd_vy", "cmd_wz",
+            "executed_vx", "executed_vy", "executed_wz",
+            "safety_blocked", "obstacle_distance"
         ])
         self._seg_step = 0
 
@@ -141,16 +143,44 @@ class DataRecorder:
         wall_time: float,
         executed_cmd: DriveCommand = None,
         safety_blocked: bool = False,
+        target_cmd: DriveCommand = None,
+        obstacle_distance: float = float('nan'),
+        relevant_point_count: int = 0,
+        cloud_age: float = float('nan'),
     ) -> int:
         """Record one exploration step by pushing to a background queue.
-        ...
+
+        Parameters
+        ----------
+        rgb_frame : np.ndarray
+            RGB image for this step.
+        cmd : DriveCommand
+            Requested (post-LERP, pre-safety) command.
+        pos_x, pos_y, yaw : float
+            Robot odometry.
+        wall_time : float
+            Wall-clock timestamp of the camera frame.
+        executed_cmd : DriveCommand, optional
+            The command actually sent to the robot (post-safety gate).
+        safety_blocked : bool
+            Whether the safety gate blocked translation this step.
+        target_cmd : DriveCommand, optional
+            Raw pink-noise target (pre-LERP smoothing). Diagnostic only.
+        obstacle_distance : float
+            Distance to nearest obstacle in the safety corridor (m).
+        relevant_point_count : int
+            Number of LiDAR points in the safety corridor.
+        cloud_age : float
+            Age of the LiDAR point cloud (seconds).
         """
         if not self._is_open:
             raise RuntimeError("DataRecorder is not open. Call open() first.")
             
         try:
             self._queue.put_nowait((
-                rgb_frame, cmd, pos_x, pos_y, yaw, wall_time, executed_cmd, safety_blocked
+                rgb_frame, cmd, pos_x, pos_y, yaw, wall_time,
+                executed_cmd, safety_blocked,
+                target_cmd, obstacle_distance, relevant_point_count, cloud_age,
             ))
         except queue.Full:
             logger.error("DataRecorder queue is full! Dropping frame!")
@@ -165,8 +195,18 @@ class DataRecorder:
                 item = self._queue.get(timeout=0.1)
             except queue.Empty:
                 continue
-                
-            (rgb_frame, cmd, pos_x, pos_y, yaw, wall_time, executed_cmd, safety_blocked) = item
+
+            # Unpack — handle both legacy (8-tuple) and extended (12-tuple) formats
+            if len(item) == 12:
+                (rgb_frame, cmd, pos_x, pos_y, yaw, wall_time,
+                 executed_cmd, safety_blocked,
+                 target_cmd, obstacle_distance, relevant_point_count, cloud_age) = item
+            else:
+                (rgb_frame, cmd, pos_x, pos_y, yaw, wall_time, executed_cmd, safety_blocked) = item
+                target_cmd = None
+                obstacle_distance = float('nan')
+                relevant_point_count = 0
+                cloud_age = float('nan')
             
             # Roll to new segment if needed
             if self._seg_step >= self.segment_size:
@@ -197,24 +237,24 @@ class DataRecorder:
             # Default executed_cmd to commanded if not provided
             ex = executed_cmd if executed_cmd is not None else cmd
 
+            # Default target_cmd to commanded if not provided (legacy callers)
+            tgt = target_cmd if target_cmd is not None else cmd
+
             # Write CSV row
             self._csv_writer.writerow([
-                0,  # trajectory_id (single continuous trajectory)
-                self._global_step,
-                self._seg_step,
                 f"{elapsed:.3f}",
+                f"rgb/{img_filename}",
+                f"{tgt.v_linear:.3f}",
+                f"{tgt.v_lateral:.3f}",
+                f"{tgt.v_angular:.3f}",
                 f"{cmd.v_linear:.3f}",
                 f"{cmd.v_lateral:.3f}",
                 f"{cmd.v_angular:.3f}",
                 f"{ex.v_linear:.3f}",
                 f"{ex.v_lateral:.3f}",
                 f"{ex.v_angular:.3f}",
-                f"{pos_x:.4f}",
-                f"{pos_y:.4f}",
-                f"{yaw:.4f}",
-                f"rgb/{img_filename}",
-                "",  # depth_path — not saved for real-world (LiDAR used directly)
                 1 if safety_blocked else 0,
+                f"{obstacle_distance:.3f}" if not (obstacle_distance != obstacle_distance) else "",
             ])
 
             self._global_step += 1

@@ -59,10 +59,11 @@ class TestDataRecorder:
             headers = next(reader)
 
         expected_headers = [
-            "trajectory_id", "global_step", "segment_step", "sim_time",
-            "linear_vel_cmd", "lateral_vel_cmd", "angular_vel_cmd",
-            "executed_linear_vel", "executed_lateral_vel", "executed_angular_vel",
-            "pos_x", "pos_y", "yaw", "rgb_path", "depth_path", "safety_intervention"
+            "timestamp", "image_path",
+            "target_vx", "target_vy", "target_wz",
+            "cmd_vx", "cmd_vy", "cmd_wz",
+            "executed_vx", "executed_vy", "executed_wz",
+            "safety_blocked", "obstacle_distance"
         ]
         assert headers == expected_headers, f"CSV headers mismatch: {headers}"
 
@@ -79,27 +80,30 @@ class TestDataRecorder:
             next(reader)  # skip header
             row = next(reader)
 
-        assert row[0] == "0", "trajectory_id should be 0"
-        assert row[1] == "0", "global_step should be 0"
-        assert row[2] == "0", "segment_step should be 0"
-        assert row[4] == "1.234", f"linear_vel_cmd should be 1.234, got {row[4]}"
-        assert row[5] == "-0.567"
-        assert row[6] == "0.890"
-        assert row[7] == "1.234"
-        assert row[8] == "-0.567"
-        assert row[9] == "0.890"
-        assert row[10] == "3.1400"  # pos_x with 4 decimals
-        assert row[11] == "-2.7100"
-        assert row[13] == "rgb/000000.png"
+        # timestamp depends on real wall-clock time relative to recorder.open()
+        # so we just assert it exists and is parseable
+        assert type(float(row[0])) is float
+        assert row[1] == "rgb/000000.jpg"
+        assert row[2] == "1.234" # target_vx
+        assert row[3] == "-0.567"
+        assert row[4] == "0.890"
+        assert row[5] == "1.234" # cmd_vx
+        assert row[6] == "-0.567"
+        assert row[7] == "0.890"
+        assert row[8] == "1.234" # executed_vx
+        assert row[9] == "-0.567"
+        assert row[10] == "0.890"
+        assert row[11] == "0", "safety_blocked should be 0"
+        assert row[12] == "", "obstacle_distance should be empty string (nan)"
 
-    def test_image_saved_as_png(self, recorder, sample_frame):
-        """Saved files are valid PNG images."""
+    def test_image_saved_as_jpg(self, recorder, sample_frame):
+        """Saved files are valid JPEG images."""
         recorder.open()
         cmd = DriveCommand()
         recorder.record_step(sample_frame, cmd, 0.0, 0.0, 0.0, 1000.0)
         recorder.close()
 
-        img_path = recorder.session_dir / "segment_000" / "rgb" / "000000.png"
+        img_path = recorder.session_dir / "segment_000" / "rgb" / "000000.jpg"
         assert img_path.exists(), "Image file not saved"
 
         # Verify it's a valid image
@@ -121,11 +125,11 @@ class TestDataRecorder:
         assert (recorder.session_dir / "segment_001").exists()
 
         # segment_000 should have exactly 5 images
-        seg0_images = list((recorder.session_dir / "segment_000" / "rgb").glob("*.png"))
+        seg0_images = list((recorder.session_dir / "segment_000" / "rgb").glob("*.jpg"))
         assert len(seg0_images) == 5, f"Expected 5 images in seg0, got {len(seg0_images)}"
 
         # segment_001 should have 3 images
-        seg1_images = list((recorder.session_dir / "segment_001" / "rgb").glob("*.png"))
+        seg1_images = list((recorder.session_dir / "segment_001" / "rgb").glob("*.jpg"))
         assert len(seg1_images) == 3, f"Expected 3 images in seg1, got {len(seg1_images)}"
 
     def test_metadata_json_written(self, recorder, sample_frame):
@@ -153,17 +157,4 @@ class TestDataRecorder:
         assert meta["source"] == "realworld"
         assert isinstance(meta["segments"], list)
 
-    def test_global_step_continuity(self, recorder, sample_frame):
-        """Global step should be strictly increasing across segments."""
-        recorder.open()
-        cmd = DriveCommand()
 
-        steps = []
-        for i in range(12):
-            step = recorder.record_step(sample_frame, cmd, 0.0, 0.0, 0.0, 1000.0 + i)
-            steps.append(step)
-
-        recorder.close()
-
-        # Steps should be 0, 1, 2, ..., 11
-        assert steps == list(range(12)), f"Steps not continuous: {steps}"

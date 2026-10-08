@@ -94,7 +94,7 @@ class ExplorationRunner:
         # Safety gate statistics
         self._gate_block_count = 0
 
-    def _safety_gate(self, cmd: DriveCommand, depth: np.ndarray) -> tuple[DriveCommand, bool]:
+    def _safety_gate(self, cmd: DriveCommand, depth: np.ndarray) -> tuple[DriveCommand, bool, dict]:
         """Independent LiDAR safety gate — directional blocking.
 
         Checks sectors for near-range obstacles and clamps specific
@@ -110,8 +110,9 @@ class ExplorationRunner:
 
         Returns
         -------
-        tuple[DriveCommand, bool]
-            (executed_cmd, was_blocked)
+        tuple[DriveCommand, bool, dict]
+            (executed_cmd, was_blocked, diagnostics)
+            diagnostics contains obstacle_distance, relevant_point_count, cloud_age
         """
         h, w = depth.shape
         obstacle_threshold = self._gate_min_depth
@@ -160,8 +161,26 @@ class ExplorationRunner:
 
         if blocked:
             self._gate_block_count += 1
-            
-        return DriveCommand(safe_vx, safe_vy, safe_wz), blocked
+
+        # Compute diagnostic metadata (no behavioral effect)
+        min_front = float(front_sector.min()) if front_sector.size > 0 else float('inf')
+        min_left = float(left_sector.min()) if left_sector.size > 0 else float('inf')
+        min_right = float(right_sector.min()) if right_sector.size > 0 else float('inf')
+        obstacle_distance = min(min_front, min_left, min_right)
+        total_danger_px = front_px + left_px + right_px
+
+        # Get cloud age from the LiDAR node if available
+        cloud_age = float('nan')
+        if hasattr(self._lidar, 'last_scan_time') and self._lidar.last_scan_time is not None:
+            cloud_age = time.time() - self._lidar.last_scan_time
+
+        diagnostics = {
+            'obstacle_distance': obstacle_distance,
+            'relevant_point_count': total_danger_px,
+            'cloud_age': cloud_age,
+        }
+
+        return DriveCommand(safe_vx, safe_vy, safe_wz), blocked, diagnostics
 
     def run(self) -> bool:
         """Execute the exploration loop.
@@ -234,7 +253,7 @@ class ExplorationRunner:
                 depth = self._lidar.get_depth_image()
                 if depth is None:
                     depth = self._fallback_depth
-                executed_cmd, safety_blocked = self._safety_gate(cmd, depth)
+                executed_cmd, safety_blocked, gate_diag = self._safety_gate(cmd, depth)
 
                 # 6. Send the (possibly blocked) command to the robot
                 self._robot.send_command(executed_cmd)
@@ -242,6 +261,8 @@ class ExplorationRunner:
                 # 7. Record data ONLY if new frame AND 10 Hz maximum sampling rate
                 if rgb is not None and cam_time != last_record_cam_time:
                     if time.time() - last_record_wall_time >= 0.1:
+                        # Capture the pre-LERP target action for diagnostics
+                        target = self._policy.target_action
                         self._recorder.record_step(
                             rgb_frame=rgb,
                             cmd=cmd,
@@ -251,6 +272,10 @@ class ExplorationRunner:
                             wall_time=cam_time,
                             executed_cmd=executed_cmd,
                             safety_blocked=safety_blocked,
+                            target_cmd=target,
+                            obstacle_distance=gate_diag['obstacle_distance'],
+                            relevant_point_count=gate_diag['relevant_point_count'],
+                            cloud_age=gate_diag['cloud_age'],
                         )
                         step_count += 1
                         last_record_cam_time = cam_time
