@@ -126,13 +126,20 @@ def validate(session_dir: Path, plot_dir: Path = None) -> bool:
 
     df = load_session(session_dir)
 
-    # Determine column names (support both old and new formats)
-    has_executed = "executed_linear_vel" in df.columns
-    has_safety = "safety_intervention" in df.columns
+    # Determine column names (support both realworld and legacy MuJoCo formats)
+    has_executed = "executed_vx" in df.columns or "executed_linear_vel" in df.columns
+    has_safety = "safety_blocked" in df.columns or "safety_intervention" in df.columns
 
-    vx = df["linear_vel_cmd"].values.astype(float)
-    vy = df["lateral_vel_cmd"].values.astype(float)
-    wz = df["angular_vel_cmd"].values.astype(float)
+    # Realworld DataRecorder writes cmd_vx/cmd_vy/cmd_wz;
+    # legacy MuJoCo pipeline wrote linear_vel_cmd/lateral_vel_cmd/angular_vel_cmd.
+    if "cmd_vx" in df.columns:
+        vx = df["cmd_vx"].values.astype(float)
+        vy = df["cmd_vy"].values.astype(float)
+        wz = df["cmd_wz"].values.astype(float)
+    else:
+        vx = df["linear_vel_cmd"].values.astype(float)
+        vy = df["lateral_vel_cmd"].values.astype(float)
+        wz = df["angular_vel_cmd"].values.astype(float)
 
     results = []
 
@@ -155,8 +162,12 @@ def validate(session_dir: Path, plot_dir: Path = None) -> bool:
 
     # ─── 3. Spatial Exploration ───
     logger.info("\n--- 3. Spatial Exploration ---")
-    px = df["pos_x"].values.astype(float)
-    py = df["pos_y"].values.astype(float)
+    if "pos_x" in df.columns and "pos_y" in df.columns:
+        px = df["pos_x"].values.astype(float)
+        py = df["pos_y"].values.astype(float)
+    else:
+        px = np.zeros(len(df))
+        py = np.zeros(len(df))
     dx = px.max() - px.min()
     dy = py.max() - py.min()
     area = dx * dy
@@ -164,8 +175,20 @@ def validate(session_dir: Path, plot_dir: Path = None) -> bool:
     passed = area > 0.01  # at least some spatial spread
     status = "✓ PASS" if passed else "✗ FAIL"
     logger.info(f"  {status}: bounding box {dx:.2f}m × {dy:.2f}m = {area:.2f}m²")
-    logger.info(f"          total distance: {total_dist:.2f}m")
+    logger.info(f"          total distance travelled: {total_dist:.2f}m")
     results.append(passed)
+
+    # pos_z and yaw — informational (no pass/fail gate)
+    if "pos_z" in df.columns:
+        pz = df["pos_z"].values.astype(float)
+        dz = pz.max() - pz.min()
+        floor_note = "— possible ramp/uneven floor" if dz > 0.05 else "— flat floor OK"
+        logger.info(f"          z range: [{pz.min():.4f}, {pz.max():.4f}]m  (Δz={dz:.4f}m {floor_note})")
+    if "yaw" in df.columns:
+        yaw_vals = df["yaw"].values.astype(float)
+        yaw_range_deg = np.degrees(float(np.ptp(np.unwrap(yaw_vals))))
+        logger.info(f"          yaw unwrapped range: {yaw_range_deg:.1f}°  "
+                    f"(≈{yaw_range_deg / 360.0:.1f} full turns over the run)")
 
     # ─── 4. High-Frequency Oscillation (heuristic sanity check) ───
     logger.info("\n--- 4. High-Frequency Oscillation (heuristic: sign-flip < 30%) ---")
@@ -177,7 +200,8 @@ def validate(session_dir: Path, plot_dir: Path = None) -> bool:
     # ─── 5. Safety Intervention Rate ───
     logger.info("\n--- 5. Safety Intervention Rate ---")
     if has_safety:
-        safety_flags = df["safety_intervention"].values.astype(int)
+        col = "safety_blocked" if "safety_blocked" in df.columns else "safety_intervention"
+        safety_flags = df[col].values.astype(int)
         intervention_rate = safety_flags.sum() / len(safety_flags)
         logger.info(f"  INFO: {safety_flags.sum()}/{len(safety_flags)} steps blocked ({intervention_rate:.2%})")
         if intervention_rate > 0.5:
@@ -194,7 +218,9 @@ def validate(session_dir: Path, plot_dir: Path = None) -> bool:
 
     # ─── Optional Plots ───
     if plot_dir is not None:
-        _generate_plots(df, vx, vy, wz, px, py, plot_dir, has_safety)
+        pz = df["pos_z"].values.astype(float) if "pos_z" in df.columns else np.zeros(len(df))
+        yaw_vals = df["yaw"].values.astype(float) if "yaw" in df.columns else np.zeros(len(df))
+        _generate_plots(df, vx, vy, wz, px, py, pz, yaw_vals, plot_dir, has_safety)
 
     return all_passed
 
@@ -203,6 +229,7 @@ def _generate_plots(
     df: pd.DataFrame,
     vx: np.ndarray, vy: np.ndarray, wz: np.ndarray,
     px: np.ndarray, py: np.ndarray,
+    pz: np.ndarray, yaw_vals: np.ndarray,
     plot_dir: Path,
     has_safety: bool,
 ) -> None:
@@ -241,20 +268,57 @@ def _generate_plots(
     plt.savefig(plot_dir / "action_timeseries.png", dpi=150)
     plt.close()
 
-    # 3. X-Y trajectory
-    fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-    ax.plot(px, py, linewidth=0.5, alpha=0.7)
+    # 3. X-Y trajectory coloured by yaw
+    fig, axes = plt.subplots(1, 2, figsize=(16, 8))
+
+    # Left: plain trajectory
+    ax = axes[0]
+    ax.plot(px, py, linewidth=0.5, alpha=0.7, color="steelblue")
     ax.plot(px[0], py[0], "go", markersize=10, label="Start")
     ax.plot(px[-1], py[-1], "rs", markersize=10, label="End")
     ax.set_xlabel("X (m)")
     ax.set_ylabel("Y (m)")
-    ax.set_title("Exploration Trajectory")
+    ax.set_title("Exploration Trajectory (X-Y)")
     ax.set_aspect("equal")
     ax.legend()
     ax.grid(True, alpha=0.3)
+
+    # Right: trajectory coloured by yaw heading
+    ax2 = axes[1]
+    points = np.array([px, py]).T.reshape(-1, 1, 2)
+    segments = np.concatenate([points[:-1], points[1:]], axis=1)
+    try:
+        from matplotlib.collections import LineCollection
+        lc = LineCollection(segments, cmap="hsv", linewidth=0.8, alpha=0.85)
+        lc.set_array(yaw_vals[:-1])
+        lc.set_clim(-np.pi, np.pi)
+        ax2.add_collection(lc)
+        fig.colorbar(lc, ax=ax2, label="Yaw (rad)")
+    except Exception:
+        ax2.plot(px, py, linewidth=0.5, alpha=0.7)
+    ax2.set_xlim(px.min() - 0.5, px.max() + 0.5)
+    ax2.set_ylim(py.min() - 0.5, py.max() + 0.5)
+    ax2.set_xlabel("X (m)")
+    ax2.set_ylabel("Y (m)")
+    ax2.set_title("Trajectory Coloured by Yaw Heading")
+    ax2.set_aspect("equal")
+    ax2.grid(True, alpha=0.3)
+
     plt.tight_layout()
     plt.savefig(plot_dir / "trajectory_xy.png", dpi=150)
     plt.close()
+
+    # 3b. Z height over time
+    if pz is not None and pz.max() - pz.min() > 1e-4:
+        fig, ax = plt.subplots(figsize=(14, 3))
+        ax.plot(pz, linewidth=0.8, color="darkorange")
+        ax.set_xlabel("Step")
+        ax.set_ylabel("Z height (m)")
+        ax.set_title("Robot Height Over Time (from odom)")
+        ax.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(plot_dir / "height_z.png", dpi=150)
+        plt.close()
 
     # 4. Autocorrelation function
     max_lag = min(100, len(vx) // 4)

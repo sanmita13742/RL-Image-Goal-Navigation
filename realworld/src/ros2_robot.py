@@ -38,6 +38,7 @@ class RobotPose:
     """Current robot pose from odometry."""
     x: float = 0.0
     y: float = 0.0
+    z: float = 0.0
     yaw: float = 0.0
     timestamp_sec: float = 0.0
 
@@ -126,6 +127,7 @@ class ROS2RangerMiniV3(Node):
             self._pose = RobotPose(
                 x=msg.pose.pose.position.x,
                 y=msg.pose.pose.position.y,
+                z=msg.pose.pose.position.z,
                 yaw=yaw,
                 timestamp_sec=stamp,
             )
@@ -138,6 +140,7 @@ class ROS2RangerMiniV3(Node):
             return RobotPose(
                 x=self._pose.x,
                 y=self._pose.y,
+                z=self._pose.z,
                 yaw=self._pose.yaw,
                 timestamp_sec=self._pose.timestamp_sec,
             )

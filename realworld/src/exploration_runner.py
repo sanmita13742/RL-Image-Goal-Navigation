@@ -268,6 +268,7 @@ class ExplorationRunner:
                             cmd=cmd,
                             pos_x=pose.x,
                             pos_y=pose.y,
+                            pos_z=pose.z,
                             yaw=pose.yaw,
                             wall_time=cam_time,
                             executed_cmd=executed_cmd,
@@ -300,7 +301,8 @@ class ExplorationRunner:
                         f"{pct:.1f}% | "
                         f"vx={cmd.v_linear:+.2f} vy={cmd.v_lateral:+.2f} "
                         f"ω={cmd.v_angular:+.2f} | "
-                        f"pos=({pose.x:.2f}, {pose.y:.2f}) | "
+                        f"pos=({pose.x:.2f}, {pose.y:.2f}, {pose.z:.2f}) "
+                        f"yaw={pose.yaw:.2f}rad | "
                         f"loop={loop_rate:.1f}Hz age={cam_age*1000:.0f}ms rec={step_count} | "
                         f"gate={gate_pct:.1f}% | "
                         f"elapsed={elapsed:.0f}s"

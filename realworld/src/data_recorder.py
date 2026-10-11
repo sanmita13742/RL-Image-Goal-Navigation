@@ -120,6 +120,7 @@ class DataRecorder:
         self._csv_writer = csv.writer(self._csv_file)
         self._csv_writer.writerow([
             "timestamp", "image_path",
+            "pos_x", "pos_y", "pos_z", "yaw",
             "target_vx", "target_vy", "target_wz",
             "cmd_vx", "cmd_vy", "cmd_wz",
             "executed_vx", "executed_vy", "executed_wz",
@@ -141,6 +142,7 @@ class DataRecorder:
         pos_y: float,
         yaw: float,
         wall_time: float,
+        pos_z: float = 0.0,
         executed_cmd: DriveCommand = None,
         safety_blocked: bool = False,
         target_cmd: DriveCommand = None,
@@ -156,8 +158,11 @@ class DataRecorder:
             RGB image for this step.
         cmd : DriveCommand
             Requested (post-LERP, pre-safety) command.
-        pos_x, pos_y, yaw : float
-            Robot odometry.
+        pos_x, pos_y, pos_z : float
+            Robot XYZ position from odometry. pos_z is height (metres above
+            the odom origin — useful for ramp / multi-floor detection).
+        yaw : float
+            Robot heading in radians (from odom quaternion).
         wall_time : float
             Wall-clock timestamp of the camera frame.
         executed_cmd : DriveCommand, optional
@@ -178,7 +183,7 @@ class DataRecorder:
             
         try:
             self._queue.put_nowait((
-                rgb_frame, cmd, pos_x, pos_y, yaw, wall_time,
+                rgb_frame, cmd, pos_x, pos_y, pos_z, yaw, wall_time,
                 executed_cmd, safety_blocked,
                 target_cmd, obstacle_distance, relevant_point_count, cloud_age,
             ))
@@ -196,13 +201,20 @@ class DataRecorder:
             except queue.Empty:
                 continue
 
-            # Unpack — handle both legacy (8-tuple) and extended (12-tuple) formats
-            if len(item) == 12:
+            # Unpack — handle legacy (8-tuple), old extended (12-tuple),
+            # and current full format (13-tuple with pos_z)
+            if len(item) == 13:
+                (rgb_frame, cmd, pos_x, pos_y, pos_z, yaw, wall_time,
+                 executed_cmd, safety_blocked,
+                 target_cmd, obstacle_distance, relevant_point_count, cloud_age) = item
+            elif len(item) == 12:
                 (rgb_frame, cmd, pos_x, pos_y, yaw, wall_time,
                  executed_cmd, safety_blocked,
                  target_cmd, obstacle_distance, relevant_point_count, cloud_age) = item
+                pos_z = 0.0
             else:
                 (rgb_frame, cmd, pos_x, pos_y, yaw, wall_time, executed_cmd, safety_blocked) = item
+                pos_z = 0.0
                 target_cmd = None
                 obstacle_distance = float('nan')
                 relevant_point_count = 0
@@ -244,6 +256,10 @@ class DataRecorder:
             self._csv_writer.writerow([
                 f"{elapsed:.3f}",
                 f"rgb/{img_filename}",
+                f"{pos_x:.4f}",
+                f"{pos_y:.4f}",
+                f"{pos_z:.4f}",
+                f"{yaw:.6f}",
                 f"{tgt.v_linear:.3f}",
                 f"{tgt.v_lateral:.3f}",
                 f"{tgt.v_angular:.3f}",
