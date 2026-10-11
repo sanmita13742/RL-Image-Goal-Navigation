@@ -58,6 +58,8 @@ def load_session(session_dir: Path) -> pd.DataFrame:
 
 def compute_autocorrelation(x: np.ndarray, lag: int = 1) -> float:
     """Compute lag-k autocorrelation of a 1D array."""
+    if lag == 0:
+        return 1.0
     n = len(x)
     if n < lag + 2:
         return 0.0
@@ -339,6 +341,13 @@ def _generate_plots(
 
 
 def main():
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     parser = argparse.ArgumentParser(description="Validate MINav exploration data")
     parser.add_argument("--session-dir", type=str, required=True,
                         help="Path to the exploration session directory")

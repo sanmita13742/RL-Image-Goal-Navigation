@@ -192,6 +192,8 @@ def axis_stats(arr: np.ndarray, name: str, lo: float, hi: float) -> dict:
 
 def lag_autocorrelation(arr: np.ndarray, lag: int) -> float:
     """Compute normalized autocorrelation at a given lag."""
+    if lag == 0:
+        return 1.0
     valid = arr[np.isfinite(arr)]
     if len(valid) <= lag:
         return float("nan")
@@ -706,6 +708,13 @@ def generate_plots(data: dict, report: dict, outdir: Path):
 # ─────────────────────────────────────────────────────────────
 
 def main():
+    if sys.platform == "win32":
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+            sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
+
     parser = argparse.ArgumentParser(
         description="Analyze exploration dataset: target/requested/executed action coverage."
     )

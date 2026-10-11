@@ -60,6 +60,7 @@ class TestDataRecorder:
 
         expected_headers = [
             "timestamp", "image_path",
+            "pos_x", "pos_y", "pos_z", "yaw",
             "target_vx", "target_vy", "target_wz",
             "cmd_vx", "cmd_vy", "cmd_wz",
             "executed_vx", "executed_vy", "executed_wz",
@@ -84,17 +85,21 @@ class TestDataRecorder:
         # so we just assert it exists and is parseable
         assert type(float(row[0])) is float
         assert row[1] == "rgb/000000.jpg"
-        assert row[2] == "1.234" # target_vx
-        assert row[3] == "-0.567"
-        assert row[4] == "0.890"
-        assert row[5] == "1.234" # cmd_vx
-        assert row[6] == "-0.567"
-        assert row[7] == "0.890"
-        assert row[8] == "1.234" # executed_vx
-        assert row[9] == "-0.567"
-        assert row[10] == "0.890"
-        assert row[11] == "0", "safety_blocked should be 0"
-        assert row[12] == "", "obstacle_distance should be empty string (nan)"
+        assert row[2] == "3.1400"  # pos_x
+        assert row[3] == "-2.7100"  # pos_y
+        assert row[4] == "0.0000"  # pos_z
+        assert row[5] == "1.570000"  # yaw
+        assert row[6] == "1.234"  # target_vx
+        assert row[7] == "-0.567"
+        assert row[8] == "0.890"
+        assert row[9] == "1.234"  # cmd_vx
+        assert row[10] == "-0.567"
+        assert row[11] == "0.890"
+        assert row[12] == "1.234"  # executed_vx
+        assert row[13] == "-0.567"
+        assert row[14] == "0.890"
+        assert row[15] == "0", "safety_blocked should be 0"
+        assert row[16] == "", "obstacle_distance should be empty string (nan)"
 
     def test_image_saved_as_jpg(self, recorder, sample_frame):
         """Saved files are valid JPEG images."""
