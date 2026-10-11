@@ -219,7 +219,7 @@ class FrozenDINOv3:
                 fps      = n_done / elapsed
                 eta      = (N - n_done) / fps if fps > 0 else 0
                 print(f"    [{n_done:6d}/{N:6d}]  "
-                      f"{fps:.1f} img/s  ETA {eta:.0f}s")
+                      f"{fps:.1f} img/s  ETA {eta:.0f}s", flush=True)
 
         elapsed = time.time() - t_start
         valid_goals = ssd_scores > self.ssd_threshold
