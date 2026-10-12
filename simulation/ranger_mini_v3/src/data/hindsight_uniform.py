@@ -121,9 +121,9 @@ def build_uniform_dataset(
                 "reward":               reward,
                 "done":                 done,
                 # Metadata
-                "pos_x":                float(row["pos_x"]),
-                "pos_y":                float(row["pos_y"]),
-                "sim_time":             float(row["sim_time"]),
+                "pos_x":                float(row["pos_x"]) if "pos_x" in row else 0.0,
+                "pos_y":                float(row["pos_y"]) if "pos_y" in row else 0.0,
+                "sim_time":             float(row["sim_time"]) if "sim_time" in row else 0.0,
             })
 
     df = pd.DataFrame(records)

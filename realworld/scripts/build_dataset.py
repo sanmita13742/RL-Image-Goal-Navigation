@@ -16,6 +16,7 @@ so all downstream code works unchanged.
 import sys
 import argparse
 import yaml
+import numpy as np
 from pathlib import Path
 
 # Project root
@@ -40,6 +41,8 @@ def main():
                         help="Run directory containing exploration/ subdirectory")
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--smoke", action="store_true", help="Use reduced frame count")
+    parser.add_argument("--force-reencode", action="store_true",
+                        help="Force re-encoding even if cached DINOv3 embeddings exist")
     args = parser.parse_args()
 
     config_path = ROOT / args.config
@@ -67,26 +70,48 @@ def main():
     h_cfg = config.get("hindsight", {})
     device = args.device
 
-    encoder = FrozenDINOv3(
-        model_name=h_cfg.get("dino_model", "vit_small_patch16_dinov3"),
-        image_h=h_cfg.get("input_resolution", [448, 784])[0],
-        image_w=h_cfg.get("input_resolution", [448, 784])[1],
-        ssd_threshold=h_cfg.get("ssd_threshold", 0.02),
-        device=device,
-    )
-
     image_paths = frame_index["rgb_abs_path"].tolist()
     max_frames = config.get("smoke", {}).get("max_frames", None) if is_smoke else None
     if max_frames:
         image_paths = image_paths[:max_frames]
         frame_index = frame_index.iloc[:max_frames].reset_index(drop=True)
 
-    batch_size = 32
-    phi_vectors, ssd_scores, valid_goals_mask, _ = encoder.encode_paths(
-        image_paths, batch_size=batch_size, return_grids=False, return_pooled=True,
-    )
-
     dinov3_dir = out_dir / "dinov3"
+    phi_cache_file = dinov3_dir / "phi_vectors.npy"
+    ssd_file = dinov3_dir / "ssd_scores.npy"
+    valid_file = dinov3_dir / "valid_goals.npy"
+
+    phi_vectors = None
+    if not args.force_reencode and phi_cache_file.exists() and ssd_file.exists() and valid_file.exists():
+        try:
+            cached_phi = np.load(phi_cache_file)
+            cached_ssd = np.load(ssd_file)
+            cached_valid = np.load(valid_file)
+            if len(cached_phi) == len(image_paths) and len(cached_ssd) == len(image_paths):
+                print(f"Found existing DINOv3 cache ({len(cached_phi):,} frames) at {dinov3_dir}.")
+                print("Skipping re-encoding and reusing cached embeddings.")
+                phi_vectors = cached_phi
+                ssd_scores = cached_ssd
+                valid_goals_mask = cached_valid
+            else:
+                print(f"Cached shape {cached_phi.shape} mismatch with image count {len(image_paths)}. Re-encoding...")
+        except Exception as e:
+            print(f"Failed to load cached embeddings: {e}. Re-encoding...")
+
+    if phi_vectors is None:
+        encoder = FrozenDINOv3(
+            model_name=h_cfg.get("dino_model", "vit_small_patch16_dinov3"),
+            image_h=h_cfg.get("input_resolution", [448, 784])[0],
+            image_w=h_cfg.get("input_resolution", [448, 784])[1],
+            ssd_threshold=h_cfg.get("ssd_threshold", 0.02),
+            device=device,
+        )
+
+        batch_size = 32
+        phi_vectors, ssd_scores, valid_goals_mask, _ = encoder.encode_paths(
+            image_paths, batch_size=batch_size, return_grids=False, return_pooled=True,
+        )
+
     cfg_meta = {
         "source": "realworld",
         "model_name": h_cfg.get("dino_model", "vit_small_patch16_dinov3"),
@@ -126,7 +151,7 @@ def main():
         seed=config["run"]["seed"],
     )
 
-    print("\n✓ Dataset build complete!")
+    print("\n[SUCCESS] Dataset build complete!")
     print(f"  Output: {out_dir}")
 
 

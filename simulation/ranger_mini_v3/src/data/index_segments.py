@@ -80,14 +80,32 @@ def build_frame_index(session_dir: Path, out_dir: Path) -> pd.DataFrame:
         # Standardize real-world vs simulation schema
         if "rgb_path" not in df.columns and "image_path" in df.columns:
             df["rgb_path"] = df["image_path"]
+        if "rgb_path" not in df.columns and "image" in df.columns:
+            df["rgb_path"] = df["image"]
+        if "segment_step" not in df.columns:
+            df["segment_step"] = np.arange(len(df), dtype=int)
         if "linear_vel_cmd" not in df.columns and "cmd_vx" in df.columns:
             df["linear_vel_cmd"] = df["cmd_vx"]
         if "lateral_vel_cmd" not in df.columns and "cmd_vy" in df.columns:
             df["lateral_vel_cmd"] = df["cmd_vy"]
         if "angular_vel_cmd" not in df.columns and "cmd_wz" in df.columns:
             df["angular_vel_cmd"] = df["cmd_wz"]
+        if "linear_vel_cmd" not in df.columns and "vx" in df.columns:
+            df["linear_vel_cmd"] = df["vx"]
+        if "lateral_vel_cmd" not in df.columns and "vy" in df.columns:
+            df["lateral_vel_cmd"] = df["vy"]
+        if "angular_vel_cmd" not in df.columns and "wz" in df.columns:
+            df["angular_vel_cmd"] = df["wz"]
         if "sim_time" not in df.columns and "timestamp" in df.columns:
             df["sim_time"] = df["timestamp"]
+        if "sim_time" not in df.columns:
+            df["sim_time"] = 0.0
+        if "pos_x" not in df.columns:
+            df["pos_x"] = 0.0
+        if "pos_y" not in df.columns:
+            df["pos_y"] = 0.0
+        if "yaw" not in df.columns:
+            df["yaw"] = 0.0
         if "trajectory_id" not in df.columns:
             df["trajectory_id"] = 0
 

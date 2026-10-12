@@ -755,7 +755,15 @@ def save_dataset(out_dir, phi_cache, ssd_scores, valid_mask,
     np.save(dinov3_dir / "ssd_scores.npy",  ssd_scores)
     np.save(dinov3_dir / "valid_goals.npy", valid_mask)
 
-    frame_index[["global_step","segment_id","segment_step","rgb_abs_path"]].to_parquet(
+    if "segment_step" not in frame_index.columns:
+        frame_index = frame_index.copy()
+        if "segment_id" in frame_index.columns:
+            frame_index["segment_step"] = frame_index.groupby("segment_id").cumcount()
+        else:
+            frame_index["segment_step"] = np.arange(len(frame_index), dtype=int)
+
+    save_cols = [c for c in ["global_step", "segment_id", "segment_step", "rgb_path", "rgb_abs_path"] if c in frame_index.columns]
+    frame_index[save_cols].to_parquet(
         dinov3_dir / "embedding_index.parquet"
     )
 

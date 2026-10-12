@@ -48,10 +48,8 @@ import time
 import numpy as np
 import torch
 import torch.nn.functional as F
-import timm
 from pathlib import Path
 from PIL import Image
-from torchvision import transforms
 
 
 VENV_PYTHON = str(Path(__file__).parent.parent.parent / "vision-dinov3")
@@ -98,6 +96,9 @@ class FrozenDINOv3:
         self.ssd_threshold = ssd_threshold
         self.image_h = image_h
         self.image_w = image_w
+
+        import timm
+        from torchvision import transforms
 
         print(f"  Loading {model_name} on {self.device}...")
         self.model = timm.create_model(model_name, pretrained=True).to(self.device)
@@ -259,7 +260,19 @@ def save_embeddings(
         np.save(out_dir / "patch_grids.npy", grids)
 
     # Save global_step -> index mapping for fast lookup
-    frame_index[["global_step", "segment_id", "segment_step", "rgb_path"]].to_parquet(
+    if "segment_step" not in frame_index.columns:
+        frame_index = frame_index.copy()
+        if "segment_id" in frame_index.columns:
+            frame_index["segment_step"] = frame_index.groupby("segment_id").cumcount()
+        else:
+            frame_index["segment_step"] = np.arange(len(frame_index), dtype=int)
+
+    if "rgb_path" not in frame_index.columns and "rgb_abs_path" in frame_index.columns:
+        frame_index = frame_index.copy()
+        frame_index["rgb_path"] = frame_index["rgb_abs_path"]
+
+    cols = [c for c in ["global_step", "segment_id", "segment_step", "rgb_path", "rgb_abs_path"] if c in frame_index.columns]
+    frame_index[cols].to_parquet(
         out_dir / "embedding_index.parquet"
     )
 
