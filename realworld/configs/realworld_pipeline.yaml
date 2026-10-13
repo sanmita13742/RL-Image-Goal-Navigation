@@ -104,8 +104,8 @@ training:
   batch_size: 1024
   gamma: 0.99
   lambda_bc: 0.001
-  lr_actor: 3.0e-4
-  lr_critic: 3.0e-4
+  lr_actor: 1.0e-4
+  lr_critic: 1.0e-4
   policy_delay: 2
   tau: 0.005
   target_noise: 0.2

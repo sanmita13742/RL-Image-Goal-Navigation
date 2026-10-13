@@ -11,8 +11,8 @@ output_dir: data/models/td3_bc_full
 lambda_bc: 0.001
 # IMPLEMENTATION CHOICES (Standard TD3 defaults)
 batch_size: 1024
-learning_rate_actor: 0.0003
-learning_rate_critic: 0.0003
+learning_rate_actor: 0.0001
+learning_rate_critic: 0.0001
 gamma: 0.99
 tau: 0.005
 policy_delay: 2
