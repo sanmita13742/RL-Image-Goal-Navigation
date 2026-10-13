@@ -57,6 +57,8 @@ class TestCameraFeed:
                     break
 
             frame = camera.get_frame()
+            if isinstance(frame, tuple):
+                frame = frame[0]
             assert frame is not None, "No frame received"
             assert len(frame.shape) == 3, f"Expected 3D array, got shape {frame.shape}"
             assert frame.shape[2] == 3, f"Expected 3 channels, got {frame.shape[2]}"
@@ -77,6 +79,8 @@ class TestCameraFeed:
                     break
 
             frame = camera.get_frame()
+            if isinstance(frame, tuple):
+                frame = frame[0]
             assert frame is not None
             assert frame.max() > 0, "Frame is all zeros — check lens cap!"
             assert frame.std() > 1.0, "Frame has very low variance — possible blank image"
@@ -97,6 +101,8 @@ class TestCameraFeed:
                     break
 
             frame = camera.get_frame()
+            if isinstance(frame, tuple):
+                frame = frame[0]
             assert frame is not None
             assert frame.dtype == np.uint8, f"Expected uint8, got {frame.dtype}"
         finally:

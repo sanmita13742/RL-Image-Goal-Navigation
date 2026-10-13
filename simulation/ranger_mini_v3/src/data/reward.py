@@ -2,6 +2,9 @@
 src/data/reward.py
 ============================================================
 Reward and done computation for hindsight goal relabeling.
+"""
+
+from __future__ import annotations
 
 PAPER SPECIFIES:
   s_t = [o'_{t-3}, o'_{t-2}, o'_{t-1}, o'_t]  (4-frame state)
