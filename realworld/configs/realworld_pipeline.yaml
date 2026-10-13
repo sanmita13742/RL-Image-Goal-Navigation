@@ -74,17 +74,19 @@ safety_gate:
   blindspot_radius: 0.15      # Filter out chassis (min radial distance)
   robot_length: 0.751         # Ranger Mini overall footprint length (m)
   robot_width: 0.60           # Ranger Mini footprint width including wheels (m)
-  safety_margin: 0.1          # Margin to add around the robot footprint (m)
+  safety_margin: 0.08         # Margin to add around the robot footprint (m)
   lidar_offset_x: 0.0508      # LiDAR offset forward from center (2.5 inches)
   lidar_offset_y: 0.0         # LiDAR offset laterally from center
   min_command_speed: 0.01     # Skip checking for very slow commands
   min_z: -0.2                 # Filter out ground
   max_z: 0.5                  # Ignore ceiling/high overhangs
-  stop_distance: 0.5          # Suppress forward if obstacle is within 0.5m
-  warning_distance: 0.8
+  stop_distance: 0.35         # Suppress forward if obstacle is within 0.35m (tuned from 0.50m for indoor agility)
+  warning_distance: 0.6
   minimum_points: 10          # Require at least 10 points to confirm obstacle
   cloud_timeout_s: 0.25       # Fail closed if cloud is older than 250ms (<4 Hz cutoff)
   min_lidar_rate_hz: 8.0      # Require >= 8 Hz LiDAR stream
+  auto_evade: true            # Pivot away from obstacles when forward translation is blocked
+  evade_angular_speed: 0.5    # Rotation speed (rad/s) to clear corridor
 
 # Downstream pipeline (identical to MuJoCo — reuses same modules)
 hindsight:

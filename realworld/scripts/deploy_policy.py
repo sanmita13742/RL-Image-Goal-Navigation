@@ -35,11 +35,13 @@ import logging
 import time
 from pathlib import Path
 from collections import deque
+import threading
 
 import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image as PILImage
+from std_msgs.msg import Bool
 
 # Project root resolution
 ROOT = Path(__file__).resolve().parent.parent.parent
@@ -71,7 +73,9 @@ def parse_args():
     parser.add_argument("--device", type=str, default="auto", help="Compute device ('cpu', 'cuda', 'auto')")
     parser.add_argument("--arm", action="store_true", help="ARM robot for real physical motion (default: DRY-RUN)")
     parser.add_argument("--speed-scale", type=float, default=0.30,
-                        help="Speed scaling factor (0.0 to 1.0) for supervised trials (default: 0.30)")
+                        help="Linear speed scaling factor (0.0 to 1.0) for supervised trials (default: 0.30)")
+    parser.add_argument("--angular-scale", type=float, default=0.80,
+                        help="Angular speed scaling factor (0.0 to 1.0, default: 0.80). Decoupled from --speed-scale.")
     parser.add_argument("--max-steps", type=int, default=1000, help="Maximum control steps")
     parser.add_argument("--control-freq", type=float, default=10.0, help="Control loop frequency in Hz")
     parser.add_argument("--goal-threshold", type=float, default=0.80, help="Cosine similarity threshold for goal arrival")
@@ -125,12 +129,22 @@ def main():
     # 5. Initialize Action Normalizer
     normalizer = ActionNormalizer(device=str(device))
     speed_scale = max(0.05, min(1.0, args.speed_scale))
-    logger.info(f"Speed scaling set to: {speed_scale * 100:.0f}% (Forward max: {1.8 * speed_scale:.2f} m/s)")
+    angular_scale = max(0.05, min(1.0, args.angular_scale))
+    logger.info(
+        f"Speed scaling: Linear={speed_scale * 100:.0f}% (Forward max: {1.8 * speed_scale:.2f} m/s) | "
+        f"Angular={angular_scale * 100:.0f}% (Turn max: {1.5 * angular_scale:.2f} rad/s)"
+    )
 
     # 6. Initialize ROS 2
     rclpy.init()
     dry_run = not args.arm
     control_period = 1.0 / args.control_freq
+
+    # Smooth 10 Hz command streamer: maintains steady command rate across CPU inference latency
+    current_cmd = DriveCommand(0.0, 0.0, 0.0)
+    cmd_lock = threading.Lock()
+    last_cmd_time = time.time()
+    stream_active = True
 
     try:
         # Connect to robot, camera, LiDAR
@@ -138,6 +152,30 @@ def main():
         camera = ROS2Camera()
         lidar = ROS2LiDAR()
         safety = SafetyMonitor(robot, camera, lidar)
+
+        # Monitor Safety Gate block status
+        is_safety_blocked = False
+        def safety_gate_callback(msg: Bool):
+            nonlocal is_safety_blocked
+            is_safety_blocked = msg.data
+        safety_sub = robot.create_subscription(Bool, "/safety_gate/blocked", safety_gate_callback, 10)
+
+        # Launch background command streamer thread
+        def streamer_loop():
+            stream_period = 1.0 / args.control_freq
+            while stream_active and rclpy.ok():
+                now = time.time()
+                with cmd_lock:
+                    if now - last_cmd_time > 2.0:
+                        cmd_to_send = DriveCommand(0.0, 0.0, 0.0)
+                    else:
+                        cmd_to_send = current_cmd
+                if not dry_run:
+                    robot.send_command(cmd_to_send)
+                time.sleep(stream_period)
+
+        streamer_thread = threading.Thread(target=streamer_loop, daemon=True)
+        streamer_thread.start()
 
         # 4-frame FIFO buffer for state construction [t-3, t-2, t-1, t0]
         phi_buffer = deque(maxlen=4)
@@ -153,7 +191,7 @@ def main():
         logger.info(f"MINAV POLICY DEPLOYMENT: {mode_str}")
         logger.info(f"  Command Topic : {args.cmd_topic}")
         logger.info(f"  Control Rate  : {args.control_freq:.1f} Hz (Period: {control_period * 1000:.1f} ms)")
-        logger.info(f"  Speed Scale   : {speed_scale:.2f}")
+        logger.info(f"  Speed Scale   : Linear={speed_scale:.2f}, Angular={angular_scale:.2f}")
         logger.info("=" * 65)
 
         if not dry_run:
@@ -174,6 +212,8 @@ def main():
             # Safety Watchdog Check
             if not dry_run and not safety.check():
                 logger.error("SAFETY WATCHDOG VIOLATION! Halting robot immediately.")
+                with cmd_lock:
+                    current_cmd = DriveCommand(0.0, 0.0, 0.0)
                 robot.emergency_stop()
                 break
 
@@ -197,7 +237,7 @@ def main():
             state = torch.cat(list(phi_buffer), dim=0).unsqueeze(0)
 
             # Policy forward pass -> normalized action in [-1, 1]^3
-            with torch.no_grad():
+            with torch.inference_mode():
                 action_norm = actor(state, goal_phi_batch)  # [1, 3]
 
             # Inverse affine denormalization to physical velocities
@@ -210,7 +250,9 @@ def main():
             # Goal arrival and stopping behavior
             if sim >= args.goal_threshold:
                 logger.info(f"🎯 GOAL REACHED! Final Cosine Similarity: {sim:.3f} >= {args.goal_threshold:.2f}")
-                robot.send_command(DriveCommand(0.0, 0.0, 0.0))
+                with cmd_lock:
+                    current_cmd = DriveCommand(0.0, 0.0, 0.0)
+                robot.emergency_stop()
                 break
 
             # Smooth deceleration when entering goal approach zone [0.70, goal_threshold]
@@ -219,25 +261,28 @@ def main():
                 # Linearly ramp down forward speed as similarity increases
                 decel_factor = max(0.15, (args.goal_threshold - sim) / (args.goal_threshold - 0.70))
 
-            # Apply safe scaling to physical velocities
+            # Apply safe scaling to physical velocities (angular decoupled from linear speed_scale)
             vx_cmd = float(vx) * speed_scale * decel_factor
             vy_cmd = float(vy) * speed_scale
-            omega_cmd = float(omega) * speed_scale
+            omega_cmd = float(omega) * angular_scale
 
-            # Send command to robot (/minav/cmd_vel)
-            cmd = DriveCommand(v_linear=vx_cmd, v_lateral=vy_cmd, v_angular=omega_cmd)
-            robot.send_command(cmd)
+            # Update continuous command streamer
+            with cmd_lock:
+                current_cmd = DriveCommand(v_linear=vx_cmd, v_lateral=vy_cmd, v_angular=omega_cmd)
+                last_cmd_time = time.time()
 
             if step % 10 == 0:
+                block_tag = " | ⚠️ SAFETY BLOCKED" if is_safety_blocked else ""
                 logger.info(
                     f"Step {step:4d} | sim: {sim:.3f} | "
                     f"cmd: [vx={vx_cmd:+.2f}, vy={vy_cmd:+.2f}, ω={omega_cmd:+.2f}] | "
                     f"raw_norm: [{action_norm[0,0]:+.2f}, {action_norm[0,1]:+.2f}, {action_norm[0,2]:+.2f}]"
+                    f"{block_tag}"
                 )
 
             step += 1
 
-            # Precision 10 Hz rate control
+            # Precision control rate timing
             elapsed = time.time() - loop_start
             if elapsed < control_period:
                 time.sleep(control_period - elapsed)
@@ -246,6 +291,9 @@ def main():
         logger.warning("Deployment interrupted by operator.")
     finally:
         logger.info("Shutting down deployment node. Sending emergency stop...")
+        stream_active = False
+        with cmd_lock:
+            current_cmd = DriveCommand(0.0, 0.0, 0.0)
         robot.emergency_stop()
         rclpy.shutdown()
 

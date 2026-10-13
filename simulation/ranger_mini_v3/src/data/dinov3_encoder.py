@@ -96,6 +96,12 @@ class FrozenDINOv3:
         else:
             self.device = torch.device(device)
 
+        if self.device.type == "cpu":
+            import os
+            n_threads = max(1, min(8, os.cpu_count() or 4))
+            torch.set_num_threads(n_threads)
+            print(f"  PyTorch CPU inference threads configured: {n_threads}")
+
         self.ssd_threshold = ssd_threshold
         self.image_h = image_h
         self.image_w = image_w
@@ -140,7 +146,7 @@ class FrozenDINOv3:
             rgb = rgb[0]
         img = Image.fromarray(rgb).convert("RGB")
         tensor = self.transform(img).unsqueeze(0).to(self.device)
-        with torch.no_grad():
+        with torch.inference_mode():
             feats = self.model.forward_features(tensor)
             phi = feats[:, 0]
             phi = F.normalize(phi, p=2, dim=-1)

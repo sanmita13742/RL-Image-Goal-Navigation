@@ -42,6 +42,8 @@ class LidarSafetyGate(Node):
         self.declare_parameter('cloud_timeout_s', 0.25)  # Max 250ms latency (Fail closed if < 4 Hz)
         self.declare_parameter('min_lidar_rate_hz', 8.0)  # Require >= 8 Hz LiDAR stream
         self.declare_parameter('min_command_speed', 0.01)
+        self.declare_parameter('auto_evade', True)
+        self.declare_parameter('evade_angular_speed', 0.5)
 
         self.input_cmd_topic = self.get_parameter('input_cmd_topic').value
         self.output_cmd_topic = self.get_parameter('output_cmd_topic').value
@@ -61,6 +63,8 @@ class LidarSafetyGate(Node):
         self.cloud_timeout_s = self.get_parameter('cloud_timeout_s').value
         self.min_lidar_rate_hz = self.get_parameter('min_lidar_rate_hz').value
         self.min_command_speed = self.get_parameter('min_command_speed').value
+        self.auto_evade = bool(self.get_parameter('auto_evade').value)
+        self.evade_angular_speed = float(self.get_parameter('evade_angular_speed').value)
 
         # Publishers
         self.cmd_pub = self.create_publisher(Twist, self.output_cmd_topic, 10)
@@ -222,17 +226,31 @@ class LidarSafetyGate(Node):
             # True distance to the obstacle from the chassis edge
             distance_from_chassis = float(np.percentile(relevant_parallel, 5)) - max_para
             
-            self.get_logger().warn(
-                f"SAFETY BLOCK: Suppressing translation! Dir=[{dir_x:.2f}, {dir_y:.2f}] "
-                f"Obstacle at {distance_from_chassis:.2f}m from chassis (pts: {point_count})",
-                throttle_duration_sec=1.0
-            )
-            
             safe_msg.linear.x = 0.0
             safe_msg.linear.y = 0.0
             safe_msg.linear.z = 0.0
             is_blocked = True
             obstacle_distance = distance_from_chassis
+
+            # Auto-evasion assist: if input angular command is negligible, steer away from the obstacle
+            if self.auto_evade and abs(msg.angular.z) < 0.15:
+                rel_by = (relevant_points['y'] + self.lidar_offset_y)
+                mean_y = float(np.mean(rel_by)) if len(rel_by) > 0 else 0.0
+                # If obstacle is centered or to the left (mean_y >= 0), pivot right (-ω).
+                # If obstacle is to the right (mean_y < 0), pivot left (+ω).
+                evade_dir = -1.0 if mean_y >= 0.0 else 1.0
+                safe_msg.angular.z = evade_dir * self.evade_angular_speed
+                self.get_logger().warn(
+                    f"SAFETY BLOCK: Suppressing translation! Obstacle at {distance_from_chassis:.2f}m (pts: {point_count}). "
+                    f"Auto-evading with ω={safe_msg.angular.z:+.2f} rad/s to clear corridor.",
+                    throttle_duration_sec=1.0
+                )
+            else:
+                self.get_logger().warn(
+                    f"SAFETY BLOCK: Suppressing translation! Dir=[{dir_x:.2f}, {dir_y:.2f}] "
+                    f"Obstacle at {distance_from_chassis:.2f}m from chassis (pts: {point_count})",
+                    throttle_duration_sec=1.0
+                )
         else:
             obstacle_distance = float('inf')
             safe_msg.linear.x = vx
