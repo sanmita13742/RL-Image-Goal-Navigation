@@ -40,7 +40,7 @@ hindsight:
   output_subdir: processed
 
 training:
-  batch_size: 256
+  batch_size: 1024
   gamma: 0.99
   lambda_bc: 0.001             # PAPER: BC regularization weight
   lr_actor: 3.0e-4
@@ -49,9 +49,11 @@ training:
   tau: 0.005
   target_noise: 0.2
   target_noise_clip: 0.5
-  total_gradient_steps: 1000000
+  total_gradient_steps: 50000
   action_scale: [1.8, 1.0, 1.5]   # PAPER: physical action range
   checkpoint_every: 10000
+  fqe_eval_every: 1000
+  fqe_frequency: 1000
   output_subdir: training
 
 smoke:

@@ -10,7 +10,7 @@ output_dir: data/models/td3_bc_full
 # PAPER-SPECIFIED
 lambda_bc: 0.001
 # IMPLEMENTATION CHOICES (Standard TD3 defaults)
-batch_size: 256
+batch_size: 1024
 learning_rate_actor: 0.0003
 learning_rate_critic: 0.0003
 gamma: 0.99
@@ -18,14 +18,15 @@ tau: 0.005
 policy_delay: 2
 target_noise: 0.2
 target_noise_clip: 0.5
-total_gradient_steps: 1000000
+total_gradient_steps: 50000
 
 # Feature loading mode (mmap or ram)
 feature_loading: ram
 
 # Checkpoints
-checkpoint_frequency: 100000
-fqe_frequency: 100000
+checkpoint_frequency: 10000
+fqe_frequency: 1000
+fqe_eval_every: 1000
 
 # Compute
 num_workers: 4

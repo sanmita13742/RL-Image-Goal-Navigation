@@ -67,7 +67,7 @@ def main():
     train_cfg["dataset_path"] = str(dataset_path)
     train_cfg["output_dir"] = str(run_dir / t_cfg.get("output_subdir", "training"))
     train_cfg["feature_loading"] = "ram" # Or mmap, hardcode ram for speed
-    train_cfg["fqe_frequency"] = train_cfg.get("checkpoint_every", 100000)
+    train_cfg["fqe_frequency"] = train_cfg.get("fqe_eval_every", train_cfg.get("fqe_frequency", train_cfg.get("checkpoint_every", 100000)))
     train_cfg["checkpoint_frequency"] = train_cfg.get("checkpoint_every", 100000)
     train_cfg["learning_rate_actor"] = train_cfg["lr_actor"]
     train_cfg["learning_rate_critic"] = train_cfg["lr_critic"]

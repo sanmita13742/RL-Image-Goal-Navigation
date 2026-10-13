@@ -81,6 +81,9 @@ def main():
     parser.add_argument("--map", type=str, required=True)
     parser.add_argument("--smoke", action="store_true")
     parser.add_argument("--gui", action="store_true", help="Launch MuJoCo viewer")
+    parser.add_argument("--duration-minutes", type=float, default=None, help="Override duration in minutes")
+    parser.add_argument("--control-freq", type=int, default=None, help="Override control frequency in Hz")
+    parser.add_argument("--image-format", type=str, default="jpg", choices=["jpg", "jpeg", "png"], help="RGB image format (default: jpg)")
     args = parser.parse_args()
 
     run_dir = Path(args.run_dir).resolve()
@@ -96,10 +99,12 @@ def main():
         if is_smoke:
             duration_minutes = config["smoke"]["exploration_minutes"]
             logger.warning("SMOKE MODE ACTIVE — limits enforced")
+        elif args.duration_minutes is not None:
+            duration_minutes = args.duration_minutes
         else:
             duration_minutes = config["exploration"]["duration_minutes"]
 
-        control_freq = config["exploration"]["control_freq_hz"]
+        control_freq = args.control_freq if args.control_freq is not None else config["exploration"]["control_freq_hz"]
         segment_size = config["exploration"]["segment_size"]
         out_subdir = config["exploration"]["output_subdir"]
         
@@ -207,6 +212,8 @@ def main():
             }
             with open(metadata_path, "w") as f:
                 json.dump(meta, f, indent=4)
+            with open(session_dir / "metadata.json", "w") as f:
+                json.dump(meta, f, indent=4)
 
         seg_dir, rgb_dir, depth_dir, csv_file, writer = open_segment(session_dir, seg_id)
         
@@ -249,9 +256,17 @@ def main():
             if safety_blocked:
                 gate_block_count += 1
             
-            img_filename = f"{seg_step:06d}.png"
-            Image.fromarray(rgb_img).save(rgb_dir / img_filename)
-            save_depth(depth_img, str(depth_dir / img_filename))
+            img_ext = args.image_format.lower()
+            if img_ext == "jpeg":
+                img_ext = "jpg"
+            img_filename = f"{seg_step:06d}.{img_ext}"
+            depth_filename = f"{seg_step:06d}.png"
+            
+            if img_ext in ["jpg", "jpeg"]:
+                Image.fromarray(rgb_img).save(rgb_dir / img_filename, format="JPEG", quality=95)
+            else:
+                Image.fromarray(rgb_img).save(rgb_dir / img_filename)
+            save_depth(depth_img, str(depth_dir / depth_filename))
             
             sim_time = robot.data.time
             writer.writerow([
@@ -259,7 +274,7 @@ def main():
                 f"{cmd.v_linear:.3f}", f"{cmd.v_lateral:.3f}", f"{cmd.v_angular:.3f}",
                 f"{executed_cmd.v_linear:.3f}", f"{executed_cmd.v_lateral:.3f}", f"{executed_cmd.v_angular:.3f}",
                 f"{pos_x:.4f}", f"{pos_y:.4f}", f"{yaw:.4f}",
-                f"rgb/{img_filename}", f"depth/{img_filename}",
+                f"rgb/{img_filename}", f"depth/{depth_filename}",
                 1 if safety_blocked else 0
             ])
             

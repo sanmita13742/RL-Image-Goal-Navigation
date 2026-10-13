@@ -39,7 +39,8 @@ class LidarSafetyGate(Node):
         self.declare_parameter('max_z', 0.5)
         self.declare_parameter('stop_distance', 0.5)
         self.declare_parameter('minimum_points', 10)
-        self.declare_parameter('cloud_timeout_s', 1.0)
+        self.declare_parameter('cloud_timeout_s', 0.25)  # Max 250ms latency (Fail closed if < 4 Hz)
+        self.declare_parameter('min_lidar_rate_hz', 8.0)  # Require >= 8 Hz LiDAR stream
         self.declare_parameter('min_command_speed', 0.01)
 
         self.input_cmd_topic = self.get_parameter('input_cmd_topic').value
@@ -58,6 +59,7 @@ class LidarSafetyGate(Node):
         self.stop_distance = self.get_parameter('stop_distance').value
         self.minimum_points = self.get_parameter('minimum_points').value
         self.cloud_timeout_s = self.get_parameter('cloud_timeout_s').value
+        self.min_lidar_rate_hz = self.get_parameter('min_lidar_rate_hz').value
         self.min_command_speed = self.get_parameter('min_command_speed').value
 
         # Publishers
@@ -68,6 +70,7 @@ class LidarSafetyGate(Node):
         self.blocked_pub = self.create_publisher(Bool, '/safety_gate/blocked', 10)
         self.pts_pub = self.create_publisher(Int32, '/safety_gate/point_count', 10)
         self.age_pub = self.create_publisher(Float32, '/safety_gate/cloud_age', 10)
+        self.rate_pub = self.create_publisher(Float32, '/safety_gate/lidar_rate_hz', 10)
 
         # Subscribers
         from rclpy.qos import qos_profile_sensor_data
@@ -78,16 +81,36 @@ class LidarSafetyGate(Node):
             Twist, self.input_cmd_topic, self.cmd_callback, 10
         )
 
-        # State
+        # State & Diagnostics
         self.last_cloud_time = 0.0
         self.cached_cloud = None
+        from collections import deque
+        self._cloud_timestamps = deque(maxlen=20)
+        self.current_rate_hz = 0.0
 
         self.get_logger().info(f"Chassis-Aware LidarSafetyGate initialized.")
-        self.get_logger().info(f"Robot Dims: L={self.robot_length:.3f}m, W={self.robot_width:.3f}m. Lidar offset: x={self.lidar_offset_x:.3f}m")
+        self.get_logger().info(f"  Input: {self.input_cmd_topic} -> Output: {self.output_cmd_topic}")
+        self.get_logger().info(f"  LiDAR: {self.lidar_topic} (timeout: {self.cloud_timeout_s:.2f}s, min_rate: {self.min_lidar_rate_hz:.1f}Hz)")
+        self.get_logger().info(f"  Robot Dims: L={self.robot_length:.3f}m, W={self.robot_width:.3f}m. Lidar offset: x={self.lidar_offset_x:.3f}m")
+
+        if "scanner/cloud" in self.lidar_topic:
+            self.get_logger().error(
+                "CRITICAL WARNING: /scanner/cloud is a throttled 1 Hz stream! "
+                "1 Hz is dangerously slow for emergency collision stops at exploration speeds. "
+                "Must subscribe to native 10 Hz stream (e.g. /rslidar_points)."
+            )
 
     def lidar_callback(self, msg: PointCloud2):
         """Process point cloud, filter vertically and radially, and cache it."""
-        self.last_cloud_time = time.time()
+        now = time.time()
+        self.last_cloud_time = now
+        self._cloud_timestamps.append(now)
+
+        if len(self._cloud_timestamps) >= 5:
+            dt = self._cloud_timestamps[-1] - self._cloud_timestamps[0]
+            if dt > 0:
+                self.current_rate_hz = (len(self._cloud_timestamps) - 1) / dt
+                self.rate_pub.publish(Float32(data=float(self.current_rate_hz)))
         
         if msg.point_step != 16:
             self.get_logger().warning(f"Unexpected point_step: {msg.point_step}. Expected 16.", throttle_duration_sec=5.0)
@@ -126,8 +149,22 @@ class LidarSafetyGate(Node):
         safe_msg.angular.y = msg.angular.y
         safe_msg.angular.z = msg.angular.z
 
+        # 1. Stale point cloud watchdog (Fail closed if no cloud for > cloud_timeout_s)
         if cloud_age > self.cloud_timeout_s:
             self.get_logger().error(f"STALE CLOUD: age {cloud_age:.2f}s > {self.cloud_timeout_s}s. Failing closed.", throttle_duration_sec=2.0)
+            safe_msg.linear.x = 0.0
+            safe_msg.linear.y = 0.0
+            safe_msg.linear.z = 0.0
+            self.cmd_pub.publish(safe_msg)
+            self.blocked_pub.publish(Bool(data=True))
+            return
+
+        # 2. LiDAR rate watchdog (Fail closed if streaming rate drops below minimum)
+        if len(self._cloud_timestamps) >= 10 and self.current_rate_hz < self.min_lidar_rate_hz:
+            self.get_logger().error(
+                f"DEGRADED LIDAR RATE: {self.current_rate_hz:.1f} Hz < {self.min_lidar_rate_hz:.1f} Hz minimum! Failing closed.",
+                throttle_duration_sec=2.0
+            )
             safe_msg.linear.x = 0.0
             safe_msg.linear.y = 0.0
             safe_msg.linear.z = 0.0

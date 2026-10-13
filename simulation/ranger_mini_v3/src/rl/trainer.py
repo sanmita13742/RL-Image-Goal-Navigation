@@ -109,7 +109,8 @@ class Trainer:
                     print(f"Actor wz (mean/std/min/max): {pi_phys_np[:,2].mean():.4f}/{pi_phys_np[:,2].std():.4f}/{pi_phys_np[:,2].min():.4f}/{pi_phys_np[:,2].max():.4f}")
                     print(f"-----------------------------------\n")
                 
-            if step % self.config['fqe_frequency'] == 0 or step == total_steps:
+            fqe_freq = self.config.get('fqe_frequency', self.config.get('fqe_eval_every', 100000))
+            if step % fqe_freq == 0 or step == total_steps:
                 q_val = self.run_fqe(step)
                 
                 # Check if this is the best checkpoint according to FQE
@@ -122,7 +123,9 @@ class Trainer:
                     dst_path = self.ckpt_dir / "best_checkpoint.pt"
                     if src_path.exists():
                         shutil.copy(src_path, dst_path)
-                        print(f"New best checkpoint! (Q: {q_val:.4f})")
+                    else:
+                        torch.save(self.agent.state_dict(), dst_path)
+                    print(f"New best checkpoint! (Q: {q_val:.4f})")
                         
         print(f"Training complete. Best checkpoint was step {self.best_fqe_step} with Q-value {self.best_fqe_q:.4f}")
                 

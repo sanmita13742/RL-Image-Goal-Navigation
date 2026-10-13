@@ -128,6 +128,19 @@ class FrozenDINOv3:
         img = Image.open(path).convert("RGB")
         return self.transform(img).unsqueeze(0)
 
+    def encode_frame(self, rgb: np.ndarray) -> torch.Tensor:
+        """
+        Encode a single in-memory RGB frame (H, W, 3) -> phi [384] tensor on self.device.
+        Applies identical preprocessing: Resize(image_h, image_w), ToTensor(), CLS token, L2 norm.
+        """
+        img = Image.fromarray(rgb).convert("RGB")
+        tensor = self.transform(img).unsqueeze(0).to(self.device)
+        with torch.no_grad():
+            feats = self.model.forward_features(tensor)
+            phi = feats[:, 0]
+            phi = F.normalize(phi, p=2, dim=-1)
+        return phi.squeeze(0)
+
     def _forward_batch(self, batch: torch.Tensor):
         """
         batch: [B, 3, H, W]
