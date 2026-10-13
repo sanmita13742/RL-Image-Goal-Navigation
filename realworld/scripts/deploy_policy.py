@@ -178,7 +178,7 @@ def main():
                 break
 
             # Acquire camera frame
-            rgb = camera.get_frame()
+            rgb, frame_time = camera.get_frame()
             if rgb is None:
                 time.sleep(0.005)
                 continue

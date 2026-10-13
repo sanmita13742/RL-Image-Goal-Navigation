@@ -136,6 +136,8 @@ class FrozenDINOv3:
         Encode a single in-memory RGB frame (H, W, 3) -> phi [384] tensor on self.device.
         Applies identical preprocessing: Resize(image_h, image_w), ToTensor(), CLS token, L2 norm.
         """
+        if isinstance(rgb, tuple):
+            rgb = rgb[0]
         img = Image.fromarray(rgb).convert("RGB")
         tensor = self.transform(img).unsqueeze(0).to(self.device)
         with torch.no_grad():
