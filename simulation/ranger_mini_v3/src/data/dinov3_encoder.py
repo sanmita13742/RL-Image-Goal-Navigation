@@ -90,6 +90,9 @@ class FrozenDINOv3:
     ):
         if device == "auto":
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        elif device == "cuda" and not torch.cuda.is_available():
+            print("  [WARNING] CUDA requested but Torch was not compiled with CUDA or CUDA is unavailable. Falling back to CPU.")
+            self.device = torch.device("cpu")
         else:
             self.device = torch.device(device)
 

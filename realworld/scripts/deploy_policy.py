@@ -83,7 +83,10 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-7s | %(message)s")
 
     # 1. Resolve compute device
-    if args.device == "auto":
+    if args.device == "cuda" and not torch.cuda.is_available():
+        logger.warning("CUDA requested via --device cuda, but CUDA is not available or Torch was compiled without CUDA. Falling back to CPU.")
+        device = torch.device("cpu")
+    elif args.device == "auto":
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     else:
         device = torch.device(args.device)
