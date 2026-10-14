@@ -30,14 +30,14 @@ class LidarSafetyGate(Node):
         # New chassis-aware parameters
         self.declare_parameter('robot_length', 0.751)
         self.declare_parameter('robot_width', 0.60)
-        self.declare_parameter('safety_margin', 0.1)
+        self.declare_parameter('safety_margin', 0.06)
         self.declare_parameter('lidar_offset_x', 0.0508)
         self.declare_parameter('lidar_offset_y', 0.0)
         self.declare_parameter('blindspot_radius', 0.15)
         
         self.declare_parameter('min_z', -0.2)
         self.declare_parameter('max_z', 0.5)
-        self.declare_parameter('stop_distance', 0.5)
+        self.declare_parameter('stop_distance', 0.25)
         self.declare_parameter('minimum_points', 10)
         self.declare_parameter('cloud_timeout_s', 0.25)  # Max 250ms latency (Fail closed if < 4 Hz)
         self.declare_parameter('min_lidar_rate_hz', 8.0)  # Require >= 8 Hz LiDAR stream
@@ -180,7 +180,7 @@ class LidarSafetyGate(Node):
         vy = msg.linear.y
         speed = math.hypot(vx, vy)
 
-        if speed < self.min_command_speed or self.cached_cloud is None:
+        if self.cached_cloud is None:
             safe_msg.linear.x = vx
             safe_msg.linear.y = vy
             safe_msg.linear.z = msg.linear.z
@@ -188,8 +188,14 @@ class LidarSafetyGate(Node):
             self.blocked_pub.publish(Bool(data=False))
             return
 
-        dir_x = vx / speed
-        dir_y = vy / speed
+        is_stationary = speed < self.min_command_speed
+        if is_stationary:
+            # When stationary, evaluate the forward corridor (+X) so subscribers know if front is obstructed
+            dir_x = 1.0
+            dir_y = 0.0
+        else:
+            dir_x = vx / speed
+            dir_y = vy / speed
 
         # 1. Transform points from rslidar to base_link
         # A point px, py in rslidar is at (px + offset_x, py + offset_y) in base_link.

@@ -243,11 +243,6 @@ def main():
                 robot.emergency_stop()
                 break
 
-            # If recovering from a safety block, flush temporal buffer to prevent stale frames
-            if was_safety_blocked and not is_safety_blocked:
-                logger.info("Safety block cleared! Flushing temporal buffer to re-anchor heading...")
-                phi_buffer.clear()
-            was_safety_blocked = is_safety_blocked
 
             # Acquire camera frame
             rgb, frame_time = camera.get_frame()
@@ -306,11 +301,23 @@ def main():
             vy_cmd = float(vy) * speed_scale * decel_factor
             omega_cmd = float(omega) * angular_scale
 
-            # If safety gate reported block, suppress ALL motion (hold position & heading)
+            # If safety gate reported block, suppress forward and lateral translation
             if is_safety_blocked:
+                blocked_ticks += 1
                 vx_cmd = 0.0
                 vy_cmd = 0.0
-                omega_cmd = 0.0
+
+                # Escaped Steering Window:
+                # Allow turning for up to 15 ticks (1.5s, ~25 deg) so policy can pivot away
+                # from the obstacle toward the goal corridor, matching exploration behavior.
+                max_pivot_ticks = 15
+                if blocked_ticks <= max_pivot_ticks:
+                    omega_cmd = float(omega) * angular_scale
+                else:
+                    # Timeout reached: halt rotation to prevent 144-degree spin away from goal
+                    omega_cmd = 0.0
+            else:
+                blocked_ticks = 0
 
             # Send command to robot (/minav/cmd_vel)
             if not args.stream:
@@ -322,7 +329,6 @@ def main():
                     last_cmd_time = time.time()
 
             if not is_safety_blocked:
-                blocked_ticks = 0
                 if step % 10 == 0:
                     logger.info(
                         f"Step {step:4d} | sim: {sim:.3f} | "
@@ -331,11 +337,11 @@ def main():
                     )
                 step += 1
             else:
-                blocked_ticks += 1
                 if blocked_ticks % 10 == 1:
+                    status = f"pivoting ({blocked_ticks}/{max_pivot_ticks})" if blocked_ticks <= max_pivot_ticks else "held stationary"
                     logger.warning(
-                        f"Step {step:4d} | ⚠️ SAFETY BLOCKED ({blocked_ticks} ticks) | "
-                        f"sim: {sim:.3f} | All motion halted [vx=0, vy=0, ω=0]"
+                        f"Step {step:4d} | ⚠️ SAFETY BLOCKED ({blocked_ticks} ticks, {status}) | "
+                        f"sim: {sim:.3f} | cmd: [vx=0, vy=0, ω={omega_cmd:+.2f}]"
                     )
 
             # Precision control rate timing
