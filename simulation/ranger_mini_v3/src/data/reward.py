@@ -2,9 +2,6 @@
 src/data/reward.py
 ============================================================
 Reward and done computation for hindsight goal relabeling.
-"""
-
-from __future__ import annotations
 
 PAPER SPECIFIES:
   s_t = [o'_{t-3}, o'_{t-2}, o'_{t-1}, o'_t]  (4-frame state)
@@ -27,6 +24,9 @@ NOTE: done=1 ONLY from visual similarity.
   - Segment boundaries are NOT done signals.
   - Dataset exhaustion (t+1 doesn't exist) is NOT done=1.
 """
+
+from __future__ import annotations
+
 
 import numpy as np
 

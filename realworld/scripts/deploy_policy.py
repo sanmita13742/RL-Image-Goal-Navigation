@@ -82,7 +82,7 @@ def parse_args():
     parser.add_argument("--speed-scale", type=float, default=0.30,
                         help="Linear speed scaling factor (0.0 to 1.0) for supervised trials (default: 0.30)")
     parser.add_argument("--angular-scale", type=float, default=None,
-                        help="Angular speed scaling factor (0.0 to 1.0, default: matches --speed-scale).")
+                        help="Angular speed scaling factor (0.0 to 1.0, default: matches --speed-scale, capped at 2x --speed-scale).")
     parser.add_argument("--stream", action="store_true", default=False,
                         help="Enable continuous background 10 Hz command streaming (default: False, synchronous per inference step)")
     parser.add_argument("--max-steps", type=int, default=1000, help="Maximum control steps")
@@ -139,6 +139,13 @@ def main():
     normalizer = ActionNormalizer(device=str(device))
     speed_scale = max(0.05, min(1.0, args.speed_scale))
     angular_scale = max(0.05, min(1.0, args.angular_scale if args.angular_scale is not None else speed_scale))
+    max_angular = 2.0 * speed_scale
+    if angular_scale > max_angular:
+        logger.warning(
+            f"Requested angular_scale ({angular_scale:.2f}) is > 2x speed_scale ({speed_scale:.2f}). "
+            f"Capping angular_scale to {max_angular:.2f} to prevent severe rotational distortion."
+        )
+        angular_scale = max_angular
     logger.info(
         f"Speed scaling: Linear={speed_scale * 100:.0f}% (Forward max: {1.8 * speed_scale:.2f} m/s) | "
         f"Angular={angular_scale * 100:.0f}% (Turn max: {1.5 * angular_scale:.2f} rad/s) | "
@@ -216,6 +223,8 @@ def main():
                 return
             logger.info("Safety monitor ARMED. Commencing closed-loop navigation...")
 
+        was_safety_blocked = False
+        blocked_ticks = 0
         step = 0
         while step < args.max_steps and rclpy.ok():
             loop_start = time.time()
@@ -233,6 +242,12 @@ def main():
                 robot.emergency_stop()
                 break
 
+            # If recovering from a safety block, flush temporal buffer to prevent stale frames
+            if was_safety_blocked and not is_safety_blocked:
+                logger.info("Safety block cleared! Flushing temporal buffer to re-anchor heading...")
+                phi_buffer.clear()
+            was_safety_blocked = is_safety_blocked
+
             # Acquire camera frame
             rgb, frame_time = camera.get_frame()
             if rgb is None:
@@ -243,9 +258,16 @@ def main():
             phi_tensor = encoder.encode_frame(rgb)  # [384] tensor on device
             phi_buffer.append(phi_tensor)
 
-            # Warm-up: Wait for 4 frames to fill FIFO buffer
+            # Warm-up / Re-buffering: Wait for 4 frames to fill FIFO buffer
             if len(phi_buffer) < 4:
-                logger.info(f"Buffering initial temporal state: {len(phi_buffer)}/4 frames...")
+                logger.info(f"Buffering temporal state: {len(phi_buffer)}/4 frames...")
+                stop_cmd = DriveCommand(0.0, 0.0, 0.0)
+                if not args.stream:
+                    robot.send_command(stop_cmd)
+                else:
+                    with cmd_lock:
+                        current_cmd = stop_cmd
+                        last_cmd_time = time.time()
                 time.sleep(control_period)
                 continue
 
@@ -282,10 +304,11 @@ def main():
             vy_cmd = float(vy) * speed_scale * decel_factor
             omega_cmd = float(omega) * angular_scale
 
-            # If safety gate reported block, suppress forward and lateral translation
+            # If safety gate reported block, suppress ALL motion (hold position & heading)
             if is_safety_blocked:
                 vx_cmd = 0.0
                 vy_cmd = 0.0
+                omega_cmd = 0.0
 
             # Send command to robot (/minav/cmd_vel)
             if not args.stream:
@@ -296,16 +319,22 @@ def main():
                     current_cmd = DriveCommand(v_linear=vx_cmd, v_lateral=vy_cmd, v_angular=omega_cmd)
                     last_cmd_time = time.time()
 
-            if step % 10 == 0:
-                block_tag = " | ⚠️ SAFETY BLOCKED" if is_safety_blocked else ""
-                logger.info(
-                    f"Step {step:4d} | sim: {sim:.3f} | "
-                    f"cmd: [vx={vx_cmd:+.2f}, vy={vy_cmd:+.2f}, ω={omega_cmd:+.2f}] | "
-                    f"raw_norm: [{action_norm[0,0]:+.2f}, {action_norm[0,1]:+.2f}, {action_norm[0,2]:+.2f}]"
-                    f"{block_tag}"
-                )
-
-            step += 1
+            if not is_safety_blocked:
+                blocked_ticks = 0
+                if step % 10 == 0:
+                    logger.info(
+                        f"Step {step:4d} | sim: {sim:.3f} | "
+                        f"cmd: [vx={vx_cmd:+.2f}, vy={vy_cmd:+.2f}, ω={omega_cmd:+.2f}] | "
+                        f"raw_norm: [{action_norm[0,0]:+.2f}, {action_norm[0,1]:+.2f}, {action_norm[0,2]:+.2f}]"
+                    )
+                step += 1
+            else:
+                blocked_ticks += 1
+                if blocked_ticks % 10 == 1:
+                    logger.warning(
+                        f"Step {step:4d} | ⚠️ SAFETY BLOCKED ({blocked_ticks} ticks) | "
+                        f"sim: {sim:.3f} | All motion halted [vx=0, vy=0, ω=0]"
+                    )
 
             # Precision control rate timing
             elapsed = time.time() - loop_start
