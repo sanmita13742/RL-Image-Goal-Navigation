@@ -32,6 +32,11 @@ from src.data.dinov3_encoder import FrozenDINOv3, save_embeddings
 from src.data.goal_set import build_goal_set
 from src.data.hindsight_geometric import build_geometric_dataset
 from src.data.hindsight_uniform import build_uniform_dataset
+from realworld.src.synthetic_augmentation import (
+    generate_temporal_reversal_transitions,
+    add_action_noise,
+    mine_curriculum_uniform_transitions,
+)
 
 
 def main():
@@ -41,6 +46,14 @@ def main():
                         help="Run directory containing exploration/ subdirectory")
     parser.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"])
     parser.add_argument("--smoke", action="store_true", help="Use reduced frame count")
+    parser.add_argument("--num-goals", type=int, default=None,
+                        help="Number of hindsight goals per transition (overrides config)")
+    parser.add_argument("--augment-reversal", action="store_true",
+                        help="Generate synthetic temporal reversal transitions (negative vx)")
+    parser.add_argument("--augment-noise", action="store_true",
+                        help="Add action noise perturbations for regularization")
+    parser.add_argument("--augment-curriculum", action="store_true",
+                        help="Mine balanced near-goal and hard-negative curriculum transitions")
     parser.add_argument("--force-reencode", action="store_true",
                         help="Force re-encoding even if cached DINOv3 embeddings exist")
     args = parser.parse_args()
@@ -127,29 +140,82 @@ def main():
     # ── Phase 4: Geometric hindsight ──
     print("\n[4/5] Building geometric hindsight dataset...")
     hindsight_dir = out_dir / "hindsight"
-    num_goals = config.get("smoke", {}).get("num_goals_per_transition", 1) if is_smoke else 1
-    build_geometric_dataset(
+    
+    # Determine num_goals
+    if is_smoke:
+        num_goals = config.get("smoke", {}).get("num_goals_per_transition", 1)
+    elif args.num_goals is not None:
+        num_goals = args.num_goals
+    else:
+        num_goals = h_cfg.get("num_goals", 10)
+
+    p_geom = h_cfg.get("geometric_p", [0.70, 0.90, 0.99])
+    p_weights = h_cfg.get("geometric_p_weights", [4, 3, 3] if isinstance(p_geom, list) and len(p_geom) == 3 else None)
+
+    df_geom = build_geometric_dataset(
         phi_vectors=phi_vectors,
         frame_index=frame_index,
-        p=h_cfg.get("geometric_p", 0.99),
+        p=p_geom,
         num_goals=num_goals,
         out_dir=hindsight_dir,
         max_frames=max_frames,
         seed=config["run"]["seed"],
+        p_weights=p_weights,
     )
+
+    # Synthetic Temporal Reversal Augmentation
+    if args.augment_reversal or h_cfg.get("augment_reversal", False):
+        print("\nApplying synthetic temporal reversal augmentation...")
+        df_rev = generate_temporal_reversal_transitions(
+            phi_vectors=phi_vectors,
+            frame_index=frame_index,
+            p_values=p_geom if isinstance(p_geom, list) else [0.70, 0.90, 0.99],
+            p_weights=p_weights if isinstance(p_geom, list) else None,
+            num_goals=num_goals,
+            seed=config["run"]["seed"],
+        )
+        if len(df_rev) > 0:
+            df_geom = pd.concat([df_geom, df_rev], ignore_index=True)
+            print(f"Total geometric transitions after reversal: {len(df_geom):,}")
+
+    # Action Noise Augmentation
+    if args.augment_noise or h_cfg.get("augment_noise", False):
+        print("\nApplying action noise regularization...")
+        df_geom_noisy = add_action_noise(df_geom, seed=config["run"]["seed"])
+        df_geom = pd.concat([df_geom, df_geom_noisy], ignore_index=True)
+        print(f"Total geometric transitions after action noise: {len(df_geom):,}")
+
+    # Save final geometric dataset
+    df_geom.to_parquet(hindsight_dir / "geometric_transitions.parquet", index=False)
 
     # ── Phase 5: Uniform hindsight ──
     print("\n[5/5] Building uniform hindsight dataset...")
-    build_uniform_dataset(
-        phi_vectors=phi_vectors,
-        frame_index=frame_index,
-        valid_goals_df=valid_goals_df,
-        ssd_scores=ssd_scores,
-        num_goals=num_goals,
-        out_dir=hindsight_dir,
-        max_frames=max_frames,
-        seed=config["run"]["seed"],
-    )
+    if args.augment_curriculum or h_cfg.get("augment_curriculum", False):
+        print("Using goal proximity curriculum mining for uniform transitions...")
+        df_unif = mine_curriculum_uniform_transitions(
+            phi_vectors=phi_vectors,
+            frame_index=frame_index,
+            valid_goals_df=valid_goals_df,
+            seed=config["run"]["seed"],
+        )
+    else:
+        df_unif = build_uniform_dataset(
+            phi_vectors=phi_vectors,
+            frame_index=frame_index,
+            valid_goals_df=valid_goals_df,
+            ssd_scores=ssd_scores,
+            num_goals=num_goals,
+            out_dir=hindsight_dir,
+            max_frames=max_frames,
+            seed=config["run"]["seed"],
+        )
+
+    if args.augment_noise or h_cfg.get("augment_noise", False):
+        df_unif_noisy = add_action_noise(df_unif, seed=config["run"]["seed"] + 1)
+        df_unif = pd.concat([df_unif, df_unif_noisy], ignore_index=True)
+        print(f"Total uniform transitions after action noise: {len(df_unif):,}")
+
+    df_unif.to_parquet(hindsight_dir / "uniform_transitions.parquet", index=False)
 
     print("\n[SUCCESS] Dataset build complete!")
     print(f"  Output: {out_dir}")

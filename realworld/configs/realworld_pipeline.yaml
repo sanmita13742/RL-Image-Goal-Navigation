@@ -94,7 +94,9 @@ hindsight:
   input_resolution: [448, 784]
   phi_dimension: 384
   ssd_threshold: 0.02
-  geometric_p: 0.99
+  num_goals: 10
+  geometric_p: [0.70, 0.90, 0.99]
+  geometric_p_weights: [4, 3, 3]
   frames_per_state: 4
   reward_threshold: 0.8
   done_threshold: 0.8
@@ -105,18 +107,19 @@ hindsight:
 training:
   batch_size: 1024
   gamma: 0.99
-  lambda_bc: 0.001
-  lr_actor: 1.0e-4
-  lr_critic: 1.0e-4
+  lambda_bc: 2.5
+  lr_actor: 3.0e-5
+  lr_critic: 3.0e-4
   policy_delay: 2
   tau: 0.005
-  target_noise: 0.2
+  target_noise: 0.1
   target_noise_clip: 0.5
-  total_gradient_steps: 50000
+  total_gradient_steps: 20000
   action_scale: [1.8, 1.0, 1.5]
-  checkpoint_every: 10000
-  fqe_eval_every: 1000
-  fqe_frequency: 1000
+  checkpoint_every: 1000
+  fqe_eval_every: 500
+  fqe_frequency: 500
+  explore_bounds: [[0.0, -0.3, -1.0], [0.6, 0.3, 1.0]]
   output_subdir: training
 
 smoke:

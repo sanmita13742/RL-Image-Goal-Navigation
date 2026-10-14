@@ -18,12 +18,23 @@ class TD3_BC:
         policy_delay=2,
         target_noise=0.2,
         target_noise_clip=0.5,
-        lambda_bc=0.001
+        lambda_bc=0.001,
+        explore_bounds=None
     ):
         self.device = device
         
         # Action Normalizer explicitly scales between real bounds and [-1, 1]
         self.normalizer = ActionNormalizer(device)
+        
+        self.explore_bounds = explore_bounds
+        if self.explore_bounds is not None:
+            explore_min = torch.tensor(self.explore_bounds[0], dtype=torch.float32, device=self.device)
+            explore_max = torch.tensor(self.explore_bounds[1], dtype=torch.float32, device=self.device)
+            self.explore_min_norm = self.normalizer.normalize(explore_min)
+            self.explore_max_norm = self.normalizer.normalize(explore_max)
+        else:
+            self.explore_min_norm = None
+            self.explore_max_norm = None
         
         self.actor = Actor(state_dim, goal_dim, action_dim).to(self.device)
         self.actor_target = copy.deepcopy(self.actor)
@@ -58,6 +69,8 @@ class TD3_BC:
             
             # Actor target outputs directly in [-1, 1]
             next_action_norm = (self.actor_target(next_state, goal) + noise).clamp(-1.0, 1.0)
+            if self.explore_min_norm is not None and self.explore_max_norm is not None:
+                next_action_norm = torch.clamp(next_action_norm, min=self.explore_min_norm, max=self.explore_max_norm)
             
             # Compute the target Q value
             target_Q1, target_Q2 = self.critic_target(next_state, next_action_norm, goal)
@@ -84,6 +97,8 @@ class TD3_BC:
         action_norm = self.normalizer.normalize(action)
         
         pi_norm = self.actor(state, goal)
+        if self.explore_min_norm is not None and self.explore_max_norm is not None:
+            pi_norm = torch.clamp(pi_norm, min=self.explore_min_norm, max=self.explore_max_norm)
         Q = self.critic.q1_forward(state, pi_norm, goal)
         
         # BC loss in normalized action space

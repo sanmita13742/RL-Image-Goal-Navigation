@@ -67,6 +67,7 @@ from shared.drive_command import DriveCommand
 from shared.action_normalizer import ActionNormalizer
 from src.rl.networks import Actor
 from src.data.dinov3_encoder import FrozenDINOv3
+from realworld.src.subgoal_planner import VisualGraphPlanner, load_planner_from_run
 
 logger = logging.getLogger("deploy_policy")
 
@@ -89,6 +90,20 @@ def parse_args():
     parser.add_argument("--control-freq", type=float, default=10.0, help="Control loop frequency in Hz")
     parser.add_argument("--goal-threshold", type=float, default=0.75,
                         help="Cosine similarity threshold for goal arrival (default: 0.75)")
+    parser.add_argument("--clamp-explore", action="store_true", default=True,
+                        help="Clamp physical velocity commands to safe exploration bounds (default: True)")
+    parser.add_argument("--no-clamp-explore", dest="clamp_explore", action="store_false",
+                        help="Disable velocity clamping to exploration bounds")
+    parser.add_argument("--min-vx", type=float, default=0.0, help="Minimum linear speed (m/s, default: 0.0)")
+    parser.add_argument("--max-vx", type=float, default=0.6, help="Maximum linear speed (m/s, default: 0.6)")
+    parser.add_argument("--max-vy", type=float, default=0.3, help="Maximum lateral speed (m/s, default: 0.3)")
+    parser.add_argument("--max-wz", type=float, default=1.0, help="Maximum angular speed (rad/s, default: 1.0)")
+    parser.add_argument("--ema-alpha", type=float, default=0.5,
+                        help="Exponential moving average alpha for smoothing velocity commands (1.0 = raw, default: 0.5)")
+    parser.add_argument("--subgoal-planner", action="store_true", default=False,
+                        help="Enable topological visual graph subgoal planner")
+    parser.add_argument("--dataset-dir", type=str, default=None,
+                        help="Path to processed dataset directory for visual subgoal planner")
     return parser.parse_args()
 
 
@@ -145,6 +160,16 @@ def main():
         f"Angular={angular_scale * 100:.0f}% (Turn max: {1.5 * angular_scale:.2f} rad/s) | "
         f"Mode={'Continuous 10Hz Streamer' if args.stream else 'Synchronous (Per-inference direct)'}"
     )
+
+    # 5b. Initialize Visual Graph Subgoal Planner if enabled
+    planner = None
+    if args.subgoal_planner:
+        if args.dataset_dir is None:
+            logger.error("--subgoal-planner was specified but --dataset-dir was not provided.")
+            return
+        dataset_path = Path(args.dataset_dir)
+        logger.info(f"Initializing VisualGraphPlanner from: {dataset_path}")
+        planner = load_planner_from_run(dataset_path)
 
     # 6. Initialize ROS 2
     if rclpy is None:
@@ -218,6 +243,8 @@ def main():
             logger.info("Safety monitor ARMED. Commencing closed-loop navigation...")
 
         step = 0
+        planner_planned = False
+        prev_cmd = None
         while step < args.max_steps and rclpy.ok():
             loop_start = time.time()
 
@@ -258,23 +285,44 @@ def main():
                 time.sleep(control_period)
                 continue
 
+            # If subgoal planner enabled, plan path once first frame embedding is available
+            if planner is not None and not planner_planned:
+                first_phi = phi_tensor.cpu().numpy()
+                target_phi = goal_phi.cpu().numpy()
+                planner.plan(first_phi, target_phi)
+                planner_planned = True
+
+            # Get active goal (either intermediate waypoint from visual graph or final goal)
+            if planner is not None:
+                subgoal_phi_np, is_final_subgoal = planner.get_current_subgoal(phi_tensor.cpu().numpy())
+                active_goal_batch = torch.tensor(subgoal_phi_np, dtype=torch.float32, device=device).unsqueeze(0)
+            else:
+                active_goal_batch = goal_phi_batch
+                is_final_subgoal = True
+
             # Construct chronological 4-frame state: [phi_{t-3}, phi_{t-2}, phi_{t-1}, phi_{t0}] -> [1, 1536]
             state = torch.cat(list(phi_buffer), dim=0).unsqueeze(0)
 
             # Policy forward pass -> normalized action in [-1, 1]^3
             with torch.inference_mode():
-                action_norm = actor(state, goal_phi_batch)  # [1, 3]
+                action_norm = actor(state, active_goal_batch)  # [1, 3]
 
             # Inverse affine denormalization to physical velocities
             action_phys = normalizer.denormalize(action_norm.squeeze(0))
             vx, vy, omega = action_phys.cpu().numpy()
 
-            # Cosine similarity to goal (both unit L2 normalized)
+            # Clamp denormalized velocities to exploration distribution
+            if args.clamp_explore:
+                vx = np.clip(vx, args.min_vx, args.max_vx)
+                vy = np.clip(vy, -args.max_vy, args.max_vy)
+                omega = np.clip(omega, -args.max_wz, args.max_wz)
+
+            # Cosine similarity to final goal (both unit L2 normalized)
             sim = float(torch.dot(phi_tensor, goal_phi).item())
 
             # Goal arrival and stopping behavior
             if sim >= args.goal_threshold:
-                logger.info(f"🎯 GOAL REACHED! Final Cosine Similarity: {sim:.3f} >= {args.goal_threshold:.2f}")
+                logger.info(f"🎯 FINAL GOAL REACHED! Final Cosine Similarity: {sim:.3f} >= {args.goal_threshold:.2f}")
                 with cmd_lock:
                     current_cmd = DriveCommand(0.0, 0.0, 0.0)
                 robot.emergency_stop()
@@ -283,7 +331,7 @@ def main():
             # Smooth deceleration when entering goal approach zone [goal_threshold - 0.10, goal_threshold]
             decel_factor = 1.0
             approach_zone_start = max(0.0, args.goal_threshold - 0.10)
-            if sim >= approach_zone_start and args.goal_threshold > approach_zone_start:
+            if is_final_subgoal and sim >= approach_zone_start and args.goal_threshold > approach_zone_start:
                 # Linearly ramp down forward speed as similarity increases
                 decel_factor = max(0.15, (args.goal_threshold - sim) / (args.goal_threshold - approach_zone_start))
 
@@ -291,6 +339,19 @@ def main():
             vx_cmd = float(vx) * speed_scale * decel_factor
             vy_cmd = float(vy) * speed_scale * decel_factor
             omega_cmd = float(omega) * angular_scale
+
+            # Clamp scaled commands to exploration bounds
+            if args.clamp_explore:
+                vx_cmd = float(np.clip(vx_cmd, args.min_vx, args.max_vx))
+                vy_cmd = float(np.clip(vy_cmd, -args.max_vy, args.max_vy))
+                omega_cmd = float(np.clip(omega_cmd, -args.max_wz, args.max_wz))
+
+            # Exponential Moving Average (EMA) smoothing of velocity commands
+            if prev_cmd is not None and args.ema_alpha < 1.0:
+                vx_cmd = args.ema_alpha * vx_cmd + (1.0 - args.ema_alpha) * prev_cmd[0]
+                vy_cmd = args.ema_alpha * vy_cmd + (1.0 - args.ema_alpha) * prev_cmd[1]
+                omega_cmd = args.ema_alpha * omega_cmd + (1.0 - args.ema_alpha) * prev_cmd[2]
+            prev_cmd = (vx_cmd, vy_cmd, omega_cmd)
 
             # If safety gate reported block, suppress forward and lateral translation
             if is_safety_blocked:

@@ -47,11 +47,12 @@ def geometric_sample_k(p: float, size: int, rng: np.random.Generator) -> np.ndar
 def build_geometric_dataset(
     phi_vectors:   np.ndarray,    # [N, 384]
     frame_index:   pd.DataFrame,  # N rows, sorted by global_step
-    p:             float,         # geometric sampling parameter (NOT paper-specified)
+    p,                            # float or list/tuple of floats
     num_goals:     int,           # goals per transition (NOT paper-specified)
     out_dir:       Path,
     max_frames:    int = None,    # for small test; None = use all
     seed:          int = 42,
+    p_weights:     list = None,   # optional weights or goal count distribution across p
 ) -> pd.DataFrame:
     """
     Generate geometric hindsight transitions.
@@ -75,6 +76,37 @@ def build_geometric_dataset(
         phi_vectors  = phi_vectors[:N]
         frame_index  = frame_index.iloc[:N].reset_index(drop=True)
 
+    # Build p_schedule: list of p values, one per goal
+    if isinstance(p, (list, tuple, np.ndarray)):
+        p_list = [float(x) for x in p]
+        if p_weights is not None and len(p_weights) == len(p_list):
+            w_sum = sum(p_weights)
+            if w_sum == num_goals:
+                p_schedule = []
+                for p_val, count in zip(p_list, p_weights):
+                    p_schedule.extend([p_val] * int(count))
+            else:
+                norm_w = [w / w_sum for w in p_weights]
+                counts = [max(1, int(round(w * num_goals))) for w in norm_w]
+                while sum(counts) > num_goals:
+                    idx = int(np.argmax(counts))
+                    counts[idx] -= 1
+                while sum(counts) < num_goals:
+                    idx = int(np.argmin(counts))
+                    counts[idx] += 1
+                p_schedule = []
+                for p_val, count in zip(p_list, counts):
+                    p_schedule.extend([p_val] * count)
+        else:
+            p_schedule = []
+            base_count = num_goals // len(p_list)
+            rem = num_goals % len(p_list)
+            for idx, p_val in enumerate(p_list):
+                c = base_count + (1 if idx < rem else 0)
+                p_schedule.extend([p_val] * c)
+    else:
+        p_schedule = [float(p)] * num_goals
+
     # Valid current states: need frames [t-3 .. t+1], so t in [3, N-2]
     # t-3 >= 0  ->  t >= 3
     # t+1 <= N-1  ->  t <= N-2
@@ -83,30 +115,31 @@ def build_geometric_dataset(
     records = []
 
     for t in valid_t:
-        for _ in range(num_goals):
-            k = int(geometric_sample_k(p=p, size=1, rng=rng)[0])
+        row = frame_index.iloc[t]
+        seg_t = row["segment_id"]
+        
+        # Enforce: State stacking must not cross segment boundaries
+        seg_t3 = frame_index.iloc[t-3]["segment_id"]
+        if seg_t3 != seg_t:
+            continue
+
+        state_phis      = phi_vectors[t-3 : t+1]    # [4, D]
+        next_state_phis = phi_vectors[t-2 : t+2]    # [4, D]
+
+        for p_val in p_schedule:
+            k = int(geometric_sample_k(p=p_val, size=1, rng=rng)[0])
             goal_t = min(t + k, N - 1)
 
             # Enforce: goal_global_step > current_global_step
             if goal_t <= t:
                 goal_t = t + 1
 
-            row = frame_index.iloc[t]
-            seg_t = row["segment_id"]
-            
-            # Enforce: State stacking must not cross segment boundaries
-            seg_t3 = frame_index.iloc[t-3]["segment_id"]
-            if seg_t3 != seg_t:
-                continue
-                
             # Enforce: Geometric goals must not cross segment boundaries
             seg_goal = frame_index.iloc[goal_t]["segment_id"]
             if seg_goal != seg_t:
                 continue
 
-            state_phis      = phi_vectors[t-3 : t+1]    # [4, D]
-            next_state_phis = phi_vectors[t-2 : t+2]    # [4, D]
-            goal_phi        = phi_vectors[goal_t]        # [D]
+            goal_phi = phi_vectors[goal_t]        # [D]
 
             sim = float((state_phis @ goal_phi).mean())
             reward = int(sim >= 0.8)
@@ -117,6 +150,7 @@ def build_geometric_dataset(
                 "goal_global_step":      int(goal_t),
                 "offset_k":              int(goal_t - t),
                 "sampling_method":       "geometric",
+                "p_geometric":           float(p_val),
                 "segment_id":            row["segment_id"],
                 "action_linear":         float(row["linear_vel_cmd"]),
                 "action_lateral":        float(row["lateral_vel_cmd"]),
@@ -149,7 +183,7 @@ def build_geometric_dataset(
     print(f"  Valid states       : {len(valid_t):,}")
     print(f"  Goals/transition   : {num_goals}")
     print(f"  Total transitions  : {len(df):,}")
-    print(f"  p (geometric)      : {p}  [NOT paper-specified]")
+    print(f"  p schedule         : {p_schedule[:10]}{'...' if len(p_schedule) > 10 else ''}")
     print(f"  Reward=1 (done=1)  : {df['reward'].sum():,} ({100*df['reward'].mean():.2f}%)")
     print(f"  Avg goal offset k  : {df['offset_k'].mean():.1f} steps")
     print(f"  Saved -> {out_path}")

@@ -52,7 +52,8 @@ class Trainer:
             policy_delay=self.config['policy_delay'],
             target_noise=self.config['target_noise'],
             target_noise_clip=self.config['target_noise_clip'],
-            lambda_bc=self.config['lambda_bc']
+            lambda_bc=self.config['lambda_bc'],
+            explore_bounds=self.config.get('explore_bounds', None)
         )
         
         self.fqe = FQE(

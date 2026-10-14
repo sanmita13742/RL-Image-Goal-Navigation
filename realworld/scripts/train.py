@@ -71,6 +71,14 @@ def main():
     train_cfg["checkpoint_frequency"] = train_cfg.get("checkpoint_every", 100000)
     train_cfg["learning_rate_actor"] = train_cfg["lr_actor"]
     train_cfg["learning_rate_critic"] = train_cfg["lr_critic"]
+    if "explore_bounds" not in train_cfg and "exploration" in config:
+        exp = config["exploration"]
+        if "vx_range" in exp and "vy_range" in exp and "wz_range" in exp:
+            train_cfg["explore_bounds"] = [
+                [float(exp["vx_range"][0]), float(exp["vy_range"][0]), float(exp["wz_range"][0])],
+                [float(exp["vx_range"][1]), float(exp["vy_range"][1]), float(exp["wz_range"][1])],
+            ]
+            print(f"  Explore Bounds: {train_cfg['explore_bounds']}")
 
     if is_smoke:
         train_cfg["total_gradient_steps"] = total_steps
