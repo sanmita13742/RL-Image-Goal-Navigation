@@ -87,8 +87,8 @@ def parse_args():
                         help="Enable continuous background 10 Hz command streaming (default: False, synchronous per inference step)")
     parser.add_argument("--max-steps", type=int, default=1000, help="Maximum control steps")
     parser.add_argument("--control-freq", type=float, default=10.0, help="Control loop frequency in Hz")
-    parser.add_argument("--goal-threshold", type=float, default=0.70,
-                        help="Cosine similarity threshold for goal arrival (default: 0.70)")
+    parser.add_argument("--goal-threshold", type=float, default=0.75,
+                        help="Cosine similarity threshold for goal arrival (default: 0.75)")
     return parser.parse_args()
 
 
