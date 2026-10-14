@@ -87,7 +87,8 @@ def parse_args():
                         help="Enable continuous background 10 Hz command streaming (default: False, synchronous per inference step)")
     parser.add_argument("--max-steps", type=int, default=1000, help="Maximum control steps")
     parser.add_argument("--control-freq", type=float, default=10.0, help="Control loop frequency in Hz")
-    parser.add_argument("--goal-threshold", type=float, default=0.80, help="Cosine similarity threshold for goal arrival")
+    parser.add_argument("--goal-threshold", type=float, default=0.70,
+                        help="Cosine similarity threshold for goal arrival (default: 0.70)")
     return parser.parse_args()
 
 
@@ -293,11 +294,12 @@ def main():
                 robot.emergency_stop()
                 break
 
-            # Smooth deceleration when entering goal approach zone [0.70, goal_threshold]
+            # Smooth deceleration when entering goal approach zone [goal_threshold - 0.10, goal_threshold]
             decel_factor = 1.0
-            if sim >= 0.70:
+            approach_zone_start = max(0.0, args.goal_threshold - 0.10)
+            if sim >= approach_zone_start and args.goal_threshold > approach_zone_start:
                 # Linearly ramp down forward speed as similarity increases
-                decel_factor = max(0.15, (args.goal_threshold - sim) / (args.goal_threshold - 0.70))
+                decel_factor = max(0.15, (args.goal_threshold - sim) / (args.goal_threshold - approach_zone_start))
 
             # Apply safe scaling to physical velocities
             vx_cmd = float(vx) * speed_scale * decel_factor

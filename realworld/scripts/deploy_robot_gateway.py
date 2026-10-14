@@ -58,7 +58,8 @@ def parse_args():
     parser.add_argument("--angular-scale", type=float, default=0.80,
                         help="Angular speed scaling factor (0.0 to 1.0, default: 0.80)")
     parser.add_argument("--control-freq", type=float, default=10.0, help="Command publishing frequency in Hz")
-    parser.add_argument("--goal-threshold", type=float, default=0.80, help="Cosine similarity threshold for goal arrival")
+    parser.add_argument("--goal-threshold", type=float, default=0.70,
+                        help="Cosine similarity threshold for goal arrival (default: 0.70)")
     parser.add_argument("--max-action-age", type=float, default=0.40,
                         help="Maximum allowed action message age in seconds before watchdog triggers (default: 0.40s)")
     return parser.parse_args()
@@ -122,10 +123,11 @@ def main():
         phys_action = normalizer.denormalize(latest_norm_action)
         vx, vy, omega = [float(x) for x in phys_action]
 
-        # Deceleration ramp near goal
+        # Deceleration ramp near goal [goal_threshold - 0.10, goal_threshold]
         decel_factor = 1.0
-        if sim >= 0.70:
-            decel_factor = max(0.15, (args.goal_threshold - sim) / (args.goal_threshold - 0.70))
+        approach_zone_start = max(0.0, args.goal_threshold - 0.10)
+        if sim >= approach_zone_start and args.goal_threshold > approach_zone_start:
+            decel_factor = max(0.15, (args.goal_threshold - sim) / (args.goal_threshold - approach_zone_start))
 
         vx_cmd = vx * speed_scale * decel_factor
         vy_cmd = vy * speed_scale
