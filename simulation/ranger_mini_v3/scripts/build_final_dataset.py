@@ -752,6 +752,7 @@ def save_dataset(out_dir, phi_cache, ssd_scores, valid_mask,
     dinov3_dir.mkdir(parents=True, exist_ok=True)
 
     np.save(dinov3_dir / "phi_cache.npy",   phi_cache)
+    np.save(dinov3_dir / "phi_vectors.npy", phi_cache)
     np.save(dinov3_dir / "ssd_scores.npy",  ssd_scores)
     np.save(dinov3_dir / "valid_goals.npy", valid_mask)
 

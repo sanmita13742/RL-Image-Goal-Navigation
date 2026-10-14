@@ -54,6 +54,8 @@ class MinavHindsightDataset:
         self.device = device
         
         phi_path = self.dataset_path / "dinov3" / "phi_vectors.npy"
+        if not phi_path.exists():
+            phi_path = self.dataset_path / "dinov3" / "phi_cache.npy"
         print(f"Loading phi_cache from {phi_path} (mode: {feature_loading})...")
         if feature_loading == 'mmap':
             self.phi_cache = np.load(phi_path, mmap_mode='r')
