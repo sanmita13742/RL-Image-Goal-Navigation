@@ -42,7 +42,7 @@ class LidarSafetyGate(Node):
         self.declare_parameter('cloud_timeout_s', 0.25)  # Max 250ms latency (Fail closed if < 4 Hz)
         self.declare_parameter('min_lidar_rate_hz', 8.0)  # Require >= 8 Hz LiDAR stream
         self.declare_parameter('min_command_speed', 0.01)
-        self.declare_parameter('auto_evade', True)
+        self.declare_parameter('auto_evade', False)
         self.declare_parameter('evade_angular_speed', 0.5)
 
         self.input_cmd_topic = self.get_parameter('input_cmd_topic').value

@@ -85,7 +85,7 @@ safety_gate:
   minimum_points: 10          # Require at least 10 points to confirm obstacle
   cloud_timeout_s: 0.25       # Fail closed if cloud is older than 250ms (<4 Hz cutoff)
   min_lidar_rate_hz: 8.0      # Require >= 8 Hz LiDAR stream
-  auto_evade: true            # Pivot away from obstacles when forward translation is blocked
+  auto_evade: false           # Pivot away from obstacles when forward translation is blocked (disabled by default)
   evade_angular_speed: 0.5    # Rotation speed (rad/s) to clear corridor
 
 # Downstream pipeline (identical to MuJoCo — reuses same modules)

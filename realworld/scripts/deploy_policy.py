@@ -41,8 +41,6 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from PIL import Image as PILImage
-from std_msgs.msg import Bool
-
 # Project root resolution
 ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(ROOT))
@@ -50,12 +48,21 @@ sys.path.insert(0, str(ROOT))
 MUJOCO_ROOT = ROOT / "simulation" / "ranger_mini_v3"
 sys.path.insert(0, str(MUJOCO_ROOT))
 
-import rclpy
+try:
+    import rclpy
+    from std_msgs.msg import Bool
+    from realworld.src.ros2_robot import ROS2RangerMiniV3
+    from realworld.src.ros2_camera import ROS2Camera
+    from realworld.src.ros2_lidar import ROS2LiDAR
+    from realworld.src.safety_monitor import SafetyMonitor
+except ImportError:
+    rclpy = None
+    Bool = None
+    ROS2RangerMiniV3 = None
+    ROS2Camera = None
+    ROS2LiDAR = None
+    SafetyMonitor = None
 
-from realworld.src.ros2_robot import ROS2RangerMiniV3
-from realworld.src.ros2_camera import ROS2Camera
-from realworld.src.ros2_lidar import ROS2LiDAR
-from realworld.src.safety_monitor import SafetyMonitor
 from shared.drive_command import DriveCommand
 from shared.action_normalizer import ActionNormalizer
 from src.rl.networks import Actor
@@ -74,8 +81,10 @@ def parse_args():
     parser.add_argument("--arm", action="store_true", help="ARM robot for real physical motion (default: DRY-RUN)")
     parser.add_argument("--speed-scale", type=float, default=0.30,
                         help="Linear speed scaling factor (0.0 to 1.0) for supervised trials (default: 0.30)")
-    parser.add_argument("--angular-scale", type=float, default=0.80,
-                        help="Angular speed scaling factor (0.0 to 1.0, default: 0.80). Decoupled from --speed-scale.")
+    parser.add_argument("--angular-scale", type=float, default=None,
+                        help="Angular speed scaling factor (0.0 to 1.0, default: matches --speed-scale).")
+    parser.add_argument("--stream", action="store_true", default=False,
+                        help="Enable continuous background 10 Hz command streaming (default: False, synchronous per inference step)")
     parser.add_argument("--max-steps", type=int, default=1000, help="Maximum control steps")
     parser.add_argument("--control-freq", type=float, default=10.0, help="Control loop frequency in Hz")
     parser.add_argument("--goal-threshold", type=float, default=0.80, help="Cosine similarity threshold for goal arrival")
@@ -129,18 +138,22 @@ def main():
     # 5. Initialize Action Normalizer
     normalizer = ActionNormalizer(device=str(device))
     speed_scale = max(0.05, min(1.0, args.speed_scale))
-    angular_scale = max(0.05, min(1.0, args.angular_scale))
+    angular_scale = max(0.05, min(1.0, args.angular_scale if args.angular_scale is not None else speed_scale))
     logger.info(
         f"Speed scaling: Linear={speed_scale * 100:.0f}% (Forward max: {1.8 * speed_scale:.2f} m/s) | "
-        f"Angular={angular_scale * 100:.0f}% (Turn max: {1.5 * angular_scale:.2f} rad/s)"
+        f"Angular={angular_scale * 100:.0f}% (Turn max: {1.5 * angular_scale:.2f} rad/s) | "
+        f"Mode={'Continuous 10Hz Streamer' if args.stream else 'Synchronous (Per-inference direct)'}"
     )
 
     # 6. Initialize ROS 2
+    if rclpy is None:
+        logger.error("ROS 2 (rclpy/std_msgs) is not available. Ensure your ROS 2 environment is sourced.")
+        return
     rclpy.init()
     dry_run = not args.arm
     control_period = 1.0 / args.control_freq
 
-    # Smooth 10 Hz command streamer: maintains steady command rate across CPU inference latency
+    # Command streaming state (used if --stream is enabled)
     current_cmd = DriveCommand(0.0, 0.0, 0.0)
     cmd_lock = threading.Lock()
     last_cmd_time = time.time()
@@ -160,22 +173,25 @@ def main():
             is_safety_blocked = msg.data
         safety_sub = robot.create_subscription(Bool, "/safety_gate/blocked", safety_gate_callback, 10)
 
-        # Launch background command streamer thread
-        def streamer_loop():
-            stream_period = 1.0 / args.control_freq
-            while stream_active and rclpy.ok():
-                now = time.time()
-                with cmd_lock:
-                    if now - last_cmd_time > 2.0:
-                        cmd_to_send = DriveCommand(0.0, 0.0, 0.0)
-                    else:
-                        cmd_to_send = current_cmd
-                if not dry_run:
-                    robot.send_command(cmd_to_send)
-                time.sleep(stream_period)
+        # Launch background command streamer thread only if --stream requested
+        if args.stream:
+            def streamer_loop():
+                stream_period = 1.0 / args.control_freq
+                while stream_active and rclpy.ok():
+                    now = time.time()
+                    with cmd_lock:
+                        if is_safety_blocked:
+                            cmd_to_send = DriveCommand(0.0, 0.0, 0.0)
+                        elif now - last_cmd_time > 0.4:
+                            cmd_to_send = DriveCommand(0.0, 0.0, 0.0)
+                        else:
+                            cmd_to_send = current_cmd
+                    if not dry_run:
+                        robot.send_command(cmd_to_send)
+                    time.sleep(stream_period)
 
-        streamer_thread = threading.Thread(target=streamer_loop, daemon=True)
-        streamer_thread.start()
+            streamer_thread = threading.Thread(target=streamer_loop, daemon=True)
+            streamer_thread.start()
 
         # 4-frame FIFO buffer for state construction [t-3, t-2, t-1, t0]
         phi_buffer = deque(maxlen=4)
@@ -261,15 +277,24 @@ def main():
                 # Linearly ramp down forward speed as similarity increases
                 decel_factor = max(0.15, (args.goal_threshold - sim) / (args.goal_threshold - 0.70))
 
-            # Apply safe scaling to physical velocities (angular decoupled from linear speed_scale)
+            # Apply safe scaling to physical velocities
             vx_cmd = float(vx) * speed_scale * decel_factor
-            vy_cmd = float(vy) * speed_scale
+            vy_cmd = float(vy) * speed_scale * decel_factor
             omega_cmd = float(omega) * angular_scale
 
-            # Update continuous command streamer
-            with cmd_lock:
-                current_cmd = DriveCommand(v_linear=vx_cmd, v_lateral=vy_cmd, v_angular=omega_cmd)
-                last_cmd_time = time.time()
+            # If safety gate reported block, suppress forward and lateral translation
+            if is_safety_blocked:
+                vx_cmd = 0.0
+                vy_cmd = 0.0
+
+            # Send command to robot (/minav/cmd_vel)
+            if not args.stream:
+                cmd = DriveCommand(v_linear=vx_cmd, v_lateral=vy_cmd, v_angular=omega_cmd)
+                robot.send_command(cmd)
+            else:
+                with cmd_lock:
+                    current_cmd = DriveCommand(v_linear=vx_cmd, v_lateral=vy_cmd, v_angular=omega_cmd)
+                    last_cmd_time = time.time()
 
             if step % 10 == 0:
                 block_tag = " | ⚠️ SAFETY BLOCKED" if is_safety_blocked else ""
