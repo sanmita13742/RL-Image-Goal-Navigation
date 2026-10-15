@@ -512,10 +512,11 @@ def main():
 
             if step % 10 == 0:
                 block_tag = " | ⚠️ SAFETY BLOCKED" if is_safety_blocked else ""
+                raw_norm = action_norm.flatten().tolist()
                 logger.info(
                     f"Step {step:4d} | sim: {sim:.3f} | "
                     f"cmd: [vx={vx_cmd:+.2f}, vy={vy_cmd:+.2f}, ω={omega_cmd:+.2f}] | "
-                    f"raw_norm: [{action_norm[0,0]:+.2f}, {action_norm[0,1]:+.2f}, {action_norm[0,2]:+.2f}]"
+                    f"raw_norm: [{raw_norm[0]:+.2f}, {raw_norm[1]:+.2f}, {raw_norm[2]:+.2f}]"
                     f"{block_tag}"
                 )
 
