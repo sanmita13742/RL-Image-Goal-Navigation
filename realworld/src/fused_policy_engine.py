@@ -167,7 +167,7 @@ class FusedPolicyEngine:
             self.set_goal_from_image(goal_rgb)
             return
 
-        arr = np.asarray(goal_input, dtype=np.float32)
+        arr = np.array(goal_input, dtype=np.float32, copy=True)
         if arr.ndim == 1 and arr.shape[0] == self.PHI_DIM:
             arr = np.expand_dims(arr, axis=0)
         elif arr.ndim == 3:  # Image array
@@ -178,7 +178,7 @@ class FusedPolicyEngine:
         norm = np.linalg.norm(arr, axis=-1, keepdims=True)
         if norm > 1e-6:
             arr = arr / norm
-        self.current_goal_phi = arr
+        self.current_goal_phi = np.array(arr, copy=True)
         logger.info(f"Goal embedding updated. Shape: {self.current_goal_phi.shape}, L2-norm: {np.linalg.norm(self.current_goal_phi):.3f}")
 
     def set_goal_from_image(self, goal_rgb: np.ndarray):
@@ -190,7 +190,7 @@ class FusedPolicyEngine:
 
         # Run model to extract current_phi
         _, phi_encoded = self._infer_fn(img_tensor, dummy_past, dummy_goal)
-        self.current_goal_phi = phi_encoded
+        self.current_goal_phi = np.array(phi_encoded, copy=True)
         logger.info(f"Goal encoded from image. Shape: {self.current_goal_phi.shape}, L2-norm: {np.linalg.norm(self.current_goal_phi):.3f}")
 
     def reset(self):
@@ -204,8 +204,10 @@ class FusedPolicyEngine:
             "goal_phi": goal_phi,
         }
         self.infer_request.infer(inputs)
-        action = self.infer_request.get_tensor("action").data
-        current_phi = self.infer_request.get_tensor("current_phi").data
+        # CRITICAL: OpenVINO tensor.data is an in-place memory view.
+        # Must make an explicit detached copy so subsequent inferences don't overwrite goal/past buffers!
+        action = np.array(self.infer_request.get_tensor("action").data, copy=True)
+        current_phi = np.array(self.infer_request.get_tensor("current_phi").data, copy=True)
         return action, current_phi
 
     def _infer_onnx(self, image: np.ndarray, past_phi: np.ndarray, goal_phi: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
@@ -215,7 +217,9 @@ class FusedPolicyEngine:
             "goal_phi": goal_phi,
         }
         outs = self.ort_session.run(None, inputs)
-        return outs[0], outs[1]
+        action = np.array(outs[0], copy=True)
+        current_phi = np.array(outs[1], copy=True)
+        return action, current_phi
 
     def step(self, rgb_frame: np.ndarray) -> Tuple[np.ndarray, float, bool]:
         """
@@ -254,8 +258,8 @@ class FusedPolicyEngine:
         # 3. Fused inference pass
         action_out, current_phi = self._infer_fn(img_tensor, past_phi_stack, self.current_goal_phi)
 
-        # 4. Slide temporal FIFO buffer
-        self.phi_history.append(current_phi)
+        # 4. Slide temporal FIFO buffer with detached copy
+        self.phi_history.append(np.array(current_phi, copy=True))
 
         # 5. Compute cosine similarity to goal: <phi_t, phi_g>
         similarity = float(np.sum(current_phi * self.current_goal_phi))

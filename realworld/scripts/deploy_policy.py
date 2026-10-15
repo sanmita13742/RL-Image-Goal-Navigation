@@ -382,7 +382,7 @@ def main():
             if use_fused:
                 action_norm_np, sim, is_ready = fused_engine.step(rgb)
                 if not is_ready:
-                    logger.info(f"Buffering temporal state: {len(fused_engine.phi_history) + 1}/4 frames...")
+                    logger.info(f"Buffering temporal state: {len(fused_engine.phi_history) + 1}/4 frames (sim to goal: {sim:.3f})...")
                     stop_cmd = DriveCommand(0.0, 0.0, 0.0)
                     if not args.stream:
                         robot.send_command(stop_cmd)
