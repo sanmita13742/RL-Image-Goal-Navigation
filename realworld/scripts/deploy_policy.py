@@ -91,8 +91,10 @@ def parse_args():
     parser.add_argument("--arm", action="store_true", help="ARM robot for real physical motion (default: DRY-RUN)")
     parser.add_argument("--speed-scale", type=float, default=0.30,
                         help="Linear speed scaling factor (0.0 to 1.0) for supervised trials (default: 0.30)")
-    parser.add_argument("--angular-scale", type=float, default=None,
-                        help="Angular speed scaling factor (0.0 to 1.0, default: 0.70 for responsive 4WS turning).")
+    parser.add_argument("--angular-scale", type=float, default=1.0,
+                        help="Angular speed scaling factor (0.0 to 1.5, default: 1.0 for sharp, decisive 4WS turning).")
+    parser.add_argument("--lateral-scale", type=float, default=0.0,
+                        help="Lateral speed scaling factor (0.0 to 1.0, default: 0.0 to prevent crabbing/slanting and enforce pure heading pivot turns).")
     parser.add_argument("--cmd-timeout", type=float, default=1.2,
                         help="Watchdog timeout in seconds before zeroing streamer velocity (default: 1.2s, accommodates ~420ms model inference)")
     parser.add_argument("--stream", action="store_true", default=False,
@@ -116,9 +118,9 @@ def parse_args():
     parser.add_argument("--min-vx", type=float, default=0.0, help="Minimum linear speed (m/s, default: 0.0)")
     parser.add_argument("--max-vx", type=float, default=0.6, help="Maximum linear speed (m/s, default: 0.6)")
     parser.add_argument("--max-vy", type=float, default=0.3, help="Maximum lateral speed (m/s, default: 0.3)")
-    parser.add_argument("--max-wz", type=float, default=1.0, help="Maximum angular speed (rad/s, default: 1.0)")
-    parser.add_argument("--ema-alpha", type=float, default=0.5,
-                        help="Exponential moving average alpha for smoothing velocity commands (1.0 = raw, default: 0.5)")
+    parser.add_argument("--max-wz", type=float, default=1.5, help="Maximum angular speed (rad/s, default: 1.5)")
+    parser.add_argument("--ema-alpha", type=float, default=0.85,
+                        help="Exponential moving average alpha for velocity commands (1.0 = raw responsive, default: 0.85)")
     parser.add_argument("--subgoal-planner", action="store_true", default=False,
                         help="Enable topological visual graph subgoal planner")
     parser.add_argument("--dataset-dir", type=str, default=None,
@@ -212,10 +214,12 @@ def main():
     # 5. Initialize Action Normalizer
     normalizer = ActionNormalizer(device=str(device))
     speed_scale = max(0.05, min(1.0, args.speed_scale))
-    angular_scale = max(0.05, min(1.0, args.angular_scale if args.angular_scale is not None else 0.70))
+    angular_scale = max(0.05, min(1.5, args.angular_scale))
+    lateral_scale = max(0.0, min(1.0, args.lateral_scale))
     logger.info(
         f"Speed scaling: Linear={speed_scale * 100:.0f}% (Forward max: {1.8 * speed_scale:.2f} m/s) | "
         f"Angular={angular_scale * 100:.0f}% (Turn max: {1.5 * angular_scale:.2f} rad/s) | "
+        f"Lateral={lateral_scale * 100:.0f}% (Crab max: {1.0 * lateral_scale:.2f} m/s) | "
         f"Watchdog Timeout={args.cmd_timeout:.1f}s | "
         f"Mode={'Continuous 10Hz Streamer' if args.stream else 'Synchronous (Per-inference direct)'}"
     )
@@ -469,8 +473,14 @@ def main():
 
             # Apply safe scaling to physical velocities
             vx_cmd = float(vx) * speed_scale * decel_factor
-            vy_cmd = float(vy) * speed_scale * decel_factor
+            vy_cmd = float(vy) * lateral_scale * decel_factor
             omega_cmd = float(omega) * angular_scale
+
+            # Turn-curvature modulation: when turning sharply, reduce forward drive
+            # so the 4WS chassis pivots cleanly into the turn instead of plowing in a wide arc.
+            turn_intensity = min(1.0, abs(omega_cmd) / 0.8)
+            turn_factor = max(0.40, 1.0 - 0.50 * turn_intensity)
+            vx_cmd = vx_cmd * turn_factor
 
             # Clamp scaled commands to exploration bounds
             if args.clamp_explore:
