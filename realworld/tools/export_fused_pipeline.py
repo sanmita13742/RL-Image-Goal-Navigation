@@ -67,6 +67,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(levelname)-7s | 
 logger = logging.getLogger("export_fused_pipeline")
 
 
+def l2_norm(x: torch.Tensor, eps: float = 1e-12) -> torch.Tensor:
+    """Universal L2 normalization avoiding ONNX ReduceL2 opset version conflicts."""
+    return x / torch.sqrt(torch.sum(x * x, dim=-1, keepdim=True) + eps)
+
+
 # ==============================================================================
 # Fused Model Architectures
 # ==============================================================================
@@ -87,7 +92,7 @@ class FusedStepPolicy(nn.Module):
         # 1. Feature extraction & L2 normalization
         feats = self.encoder.forward_features(current_image)
         cls_tok = feats[:, 0, :]
-        current_phi = F.normalize(cls_tok, p=2, dim=-1)
+        current_phi = l2_norm(cls_tok)
 
         # 2. Chronological 4-frame state concatenation: [phi_{t-3}, phi_{t-2}, phi_{t-1}, phi_t]
         state = torch.cat([past_phi_stack, current_phi], dim=-1)
@@ -115,13 +120,13 @@ class FusedEndToEndPolicy(nn.Module):
         imgs_flat = stacked_images.reshape(B * 4, 3, 448, 784)
         feats_state = self.encoder.forward_features(imgs_flat)
         cls_state = feats_state[:, 0, :]
-        phi_state = F.normalize(cls_state, p=2, dim=-1)  # [B*4, 384]
+        phi_state = l2_norm(cls_state)                     # [B*4, 384]
         state = phi_state.reshape(B, 4 * 384)            # [B, 1536]
 
         # Encode goal image
         feats_goal = self.encoder.forward_features(goal_image)
         cls_goal = feats_goal[:, 0, :]
-        goal_phi = F.normalize(cls_goal, p=2, dim=-1)    # [B, 384]
+        goal_phi = l2_norm(cls_goal)                       # [B, 384]
 
         # Actor pass
         action = self.actor(state, goal_phi)
@@ -145,7 +150,7 @@ class FusedDINOv3Encoder(nn.Module):
     def forward(self, image: torch.Tensor):
         feats = self.encoder.forward_features(image)
         cls_tok = feats[:, 0, :]
-        return F.normalize(cls_tok, p=2, dim=-1)
+        return l2_norm(cls_tok)
 
 
 # ==============================================================================
@@ -164,15 +169,40 @@ def load_models(checkpoint_path: Path, dinov3_model_name: str = "vit_small_patch
     action_dim = 3
     actor = Actor(state_dim=state_dim, goal_dim=goal_dim, action_dim=action_dim)
 
-    if checkpoint_path is not None and checkpoint_path.exists():
-        logger.info(f"Loading trained Actor weights from: {checkpoint_path}")
-        ckpt = torch.load(checkpoint_path, map_location="cpu")
+    # Smart path resolution for leading slashes and common relative locations
+    resolved_path = None
+    if checkpoint_path is not None:
+        raw_p = Path(checkpoint_path)
+        if raw_p.exists():
+            resolved_path = raw_p
+        else:
+            clean_str = str(checkpoint_path).lstrip("/\\")
+            cand_paths = [
+                Path.cwd() / clean_str,
+                Path.home() / clean_str,
+                Path(clean_str),
+                Path.cwd() / "runs" / clean_str,
+                Path.cwd() / "realworld" / "models" / clean_str,
+            ]
+            for cand in cand_paths:
+                if cand.exists():
+                    resolved_path = cand
+                    logger.info(f"Resolved checkpoint path to: {resolved_path}")
+                    break
+
+    if resolved_path is not None and resolved_path.exists():
+        logger.info(f"Loading trained Actor weights from: {resolved_path}")
+        ckpt = torch.load(resolved_path, map_location="cpu")
         if "actor" in ckpt:
             actor.load_state_dict(ckpt["actor"])
         else:
             actor.load_state_dict(ckpt)
+        logger.info("Successfully loaded Actor weights.")
     else:
-        logger.warning("No checkpoint provided or checkpoint does not exist; using randomly initialized Actor.")
+        logger.warning(
+            f"Checkpoint '{checkpoint_path}' not found! "
+            "Using randomly initialized Actor. (Make sure you pass the correct path to your trained .pt checkpoint!)"
+        )
 
     actor.eval()
     for p in actor.parameters():
@@ -195,7 +225,7 @@ def export_onnx(model: nn.Module, dummy_inputs: tuple, onnx_path: Path, input_na
         input_names=input_names,
         output_names=output_names,
         dynamic_axes=dynamic_axes,
-        opset_version=18,
+        opset_version=14,
         do_constant_folding=True,
     )
     elapsed = time.time() - t0
