@@ -150,8 +150,22 @@ def main():
     if use_fused:
         fused_path = Path(args.fused_model)
         if not fused_path.exists():
-            logger.error(f"Fused model file not found: {fused_path}")
-            return
+            if args.checkpoint is not None and Path(args.checkpoint).exists():
+                logger.warning(
+                    f"Fused model file not found at: {fused_path}.\n"
+                    f"Falling back to PyTorch checkpoint: {args.checkpoint}\n"
+                    f"(Tip: To generate the fused OpenVINO model, run: python realworld/tools/export_fused_pipeline.py --checkpoint {args.checkpoint} --output-dir {fused_path.parent})"
+                )
+                use_fused = False
+            else:
+                logger.error(
+                    f"Fused model file not found: {fused_path}\n"
+                    f"To generate it from a checkpoint, run:\n"
+                    f"  python realworld/tools/export_fused_pipeline.py --checkpoint <PATH_TO_CHECKPOINT> --output-dir {fused_path.parent}"
+                )
+                return
+
+    if use_fused:
         logger.info(f"Using Fused Policy Engine from: {fused_path}")
         fused_dev = "CPU" if device.type == "cpu" else "GPU"
         fused_engine = FusedPolicyEngine(fused_path, device=fused_dev, backend=args.fused_backend)
