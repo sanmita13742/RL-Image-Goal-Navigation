@@ -50,5 +50,16 @@ We have designed a custom 16x16m indoor navigation maze to rigorously stress-tes
 - **Camera QoS Mismatch**: The Intel RealSense driver in Foxy publishes images as `Durability: TRANSIENT_LOCAL` and `Reliability: RELIABLE`. The `ros2_camera.py` subscriber MUST strictly match this, or the exploration script will fail to initialize with `cam=False`.
 - **rosbag2 QoS Fix**: By default, Foxy's `ros2 bag record` assumes a `RELIABLE` subscriber. If you ever need to record a `BEST_EFFORT` topic, you MUST provide a QoS override YAML file to `--qos-profile-overrides-path`, otherwise `rosbag2` will silently ignore the topic. (Implemented in `record_2hr_dataset.py`).
 
+## 8. Onboard Fused Inference (ONNX & Intel OpenVINO)
+- **Problem**: Running `timm` and PyTorch in eager mode on the robot's onboard Intel CPU introduces heavy memory footprint, Python GIL contention, and latency jitter at 10 Hz.
+- **Solution**: The entire pipeline (`Image -> DINOv3 -> L2 Normalize -> 4-Frame Temporal State -> Actor MLP`) is compiled into a single fused computational graph.
+- **Artifacts** (`realworld/models/fused/`):
+  - `minav_fused_step_policy.xml` / `.bin` (Intel OpenVINO IR, optimized with LATENCY hint)
+  - `minav_fused_step_policy.onnx` (ONNX Runtime CPUExecutionProvider)
+  - `minav_fused_e2e_policy.*` (Full 5-image end-to-end model)
+  - `minav_dinov3_encoder.*` (Standalone unit-normalized visual encoder)
+- **Runtime Engine**: `realworld/src/fused_policy_engine.py` delivers zero-eager-PyTorch inference directly from raw OpenCV/RealSense frames, achieving ~1.29x speedup and sub-millisecond action generation on CPU.
+- **Deployment**: Integrated directly into `realworld/scripts/deploy_policy.py` via `--fused-model <path>`.
+
 ---
 *Agent Note: When assisting the user in this repository, always reference this context to understand the system design, environment boundaries, and the progress made so far.*

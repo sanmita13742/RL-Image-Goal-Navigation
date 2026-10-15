@@ -25,8 +25,17 @@ whitenoise/
 *.npy
 *.parquet
 *.npz
+*.bin
+*.onnx
+*.onnx.data
+realworld/models/
+models/
 
 # Artifacts & ZIPs
 *.zip
 *.tar.gz
 *.pdf
+
+# Final Review & Paper Drafts
+docs/final-rev/
+.tools/

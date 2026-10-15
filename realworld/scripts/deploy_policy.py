@@ -68,13 +68,20 @@ from shared.action_normalizer import ActionNormalizer
 from src.rl.networks import Actor
 from src.data.dinov3_encoder import FrozenDINOv3
 from realworld.src.subgoal_planner import VisualGraphPlanner, load_planner_from_run
+from realworld.src.fused_policy_engine import FusedPolicyEngine
+from realworld.src.deployment_metrics_logger import DeploymentMetricsLogger
 
 logger = logging.getLogger("deploy_policy")
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Deploy trained MINav navigation policy")
-    parser.add_argument("--checkpoint", type=str, required=True, help="Path to actor checkpoint (.pt)")
+    parser.add_argument("--checkpoint", type=str, default=None,
+                        help="Path to actor checkpoint (.pt, optional if --fused-model is supplied)")
+    parser.add_argument("--fused-model", type=str, default=None,
+                        help="Path to fused ONNX (.onnx) or OpenVINO (.xml) model to bypass eager PyTorch/timm")
+    parser.add_argument("--fused-backend", type=str, choices=["auto", "openvino", "onnx"], default="auto",
+                        help="Inference engine for fused model ('auto', 'openvino', 'onnx', default: auto)")
     parser.add_argument("--goal-image", type=str, required=True, help="Path to goal image (RGB)")
     parser.add_argument("--cmd-topic", type=str, default="/minav/cmd_vel",
                         help="Topic to publish policy commands (default: /minav/cmd_vel routed through safety gate)")
@@ -90,6 +97,14 @@ def parse_args():
     parser.add_argument("--control-freq", type=float, default=10.0, help="Control loop frequency in Hz")
     parser.add_argument("--goal-threshold", type=float, default=0.75,
                         help="Cosine similarity threshold for goal arrival (default: 0.75)")
+    parser.add_argument("--split", type=str, choices=["simple", "standard", "complex"], default="complex",
+                        help="Difficulty split for benchmark metrics tracking ('simple', 'standard', 'complex')")
+    parser.add_argument("--metrics-dir", type=str, default="results/deployment_metrics",
+                        help="Directory to save deployment logs, telemetry, and LaTeX benchmark tables")
+    parser.add_argument("--optimal-time", type=float, default=None,
+                        help="Reference optimal time T* in seconds for STL calculation (default: auto heuristic)")
+    parser.add_argument("--episode-id", type=str, default=None,
+                        help="Unique episode identifier (default: auto timestamp)")
     parser.add_argument("--clamp-explore", action="store_true", default=True,
                         help="Clamp physical velocity commands to safe exploration bounds (default: True)")
     parser.add_argument("--no-clamp-explore", dest="clamp_explore", action="store_false",
@@ -121,35 +136,58 @@ def main():
         device = torch.device(args.device)
     logger.info(f"Compute device: {device}")
 
-    # 2. Load DINOv3 visual encoder
-    logger.info("Initializing frozen DINOv3 visual encoder (vit_small_patch16_dinov3)...")
-    encoder = FrozenDINOv3(device=str(device))
+    # Validate inputs
+    if args.fused_model is None and args.checkpoint is None:
+        logger.error("Either --fused-model or --checkpoint must be provided.")
+        return
 
-    # 3. Encode goal image
     goal_path = Path(args.goal_image)
     if not goal_path.exists():
         logger.error(f"Goal image not found: {goal_path}")
         return
-    logger.info(f"Encoding goal image: {goal_path}")
-    goal_rgb = np.array(PILImage.open(goal_path).convert("RGB"))
-    goal_phi = encoder.encode_frame(goal_rgb)  # [384] tensor on device
-    goal_phi_batch = goal_phi.unsqueeze(0)     # [1, 384]
-    logger.info(f"Goal embedding ready. Shape: {goal_phi.shape}, L2-norm: {torch.norm(goal_phi).item():.3f}")
 
-    # 4. Load Actor network
-    state_dim = 4 * 384   # 4 consecutive 384-D frame embeddings = 1536
-    goal_dim = 384
-    action_dim = 3
-
-    actor = Actor(state_dim, goal_dim, action_dim).to(device)
-    logger.info(f"Loading actor weights from: {args.checkpoint}")
-    ckpt = torch.load(args.checkpoint, map_location=device)
-    if "actor" in ckpt:
-        actor.load_state_dict(ckpt["actor"])
+    use_fused = (args.fused_model is not None)
+    if use_fused:
+        fused_path = Path(args.fused_model)
+        if not fused_path.exists():
+            logger.error(f"Fused model file not found: {fused_path}")
+            return
+        logger.info(f"Using Fused Policy Engine from: {fused_path}")
+        fused_dev = "CPU" if device.type == "cpu" else "GPU"
+        fused_engine = FusedPolicyEngine(fused_path, device=fused_dev, backend=args.fused_backend)
+        logger.info(f"Encoding goal image with Fused Engine: {goal_path}")
+        fused_engine.set_goal(goal_path)
+        encoder = None
+        actor = None
+        goal_phi = None
+        goal_phi_batch = None
     else:
-        actor.load_state_dict(ckpt)
-    actor.eval()
-    logger.info("Actor network initialized in eval mode.")
+        fused_engine = None
+        # 2. Load DINOv3 visual encoder
+        logger.info("Initializing frozen DINOv3 visual encoder (vit_small_patch16_dinov3)...")
+        encoder = FrozenDINOv3(device=str(device))
+
+        # 3. Encode goal image
+        logger.info(f"Encoding goal image: {goal_path}")
+        goal_rgb = np.array(PILImage.open(goal_path).convert("RGB"))
+        goal_phi = encoder.encode_frame(goal_rgb)  # [384] tensor on device
+        goal_phi_batch = goal_phi.unsqueeze(0)     # [1, 384]
+        logger.info(f"Goal embedding ready. Shape: {goal_phi.shape}, L2-norm: {torch.norm(goal_phi).item():.3f}")
+
+        # 4. Load Actor network
+        state_dim = 4 * 384   # 4 consecutive 384-D frame embeddings = 1536
+        goal_dim = 384
+        action_dim = 3
+
+        actor = Actor(state_dim, goal_dim, action_dim).to(device)
+        logger.info(f"Loading actor weights from: {args.checkpoint}")
+        ckpt = torch.load(args.checkpoint, map_location=device)
+        if "actor" in ckpt:
+            actor.load_state_dict(ckpt["actor"])
+        else:
+            actor.load_state_dict(ckpt)
+        actor.eval()
+        logger.info("Actor network initialized in eval mode.")
 
     # 5. Initialize Action Normalizer
     normalizer = ActionNormalizer(device=str(device))
@@ -242,9 +280,28 @@ def main():
                 return
             logger.info("Safety monitor ARMED. Commencing closed-loop navigation...")
 
+        # Initialize Deployment Metrics Logger (SR, Time, STL)
+        metrics_logger = DeploymentMetricsLogger(
+            log_dir=args.metrics_dir,
+            method_name="MINav (TD3+BC)",
+            visual_backbone="DINOv3 (ViT-S/16)",
+            policy_params=558339,
+        )
+        ep_id = metrics_logger.start_episode(
+            split=args.split,
+            goal_image=str(goal_path),
+            max_steps=args.max_steps,
+            control_freq=args.control_freq,
+            optimal_time_sec=args.optimal_time,
+            goal_threshold=args.goal_threshold,
+            episode_id=args.episode_id,
+        )
+
         step = 0
         planner_planned = False
         prev_cmd = None
+        episode_completed = False
+        sim = 0.0
         while step < args.max_steps and rclpy.ok():
             loop_start = time.time()
 
@@ -268,57 +325,69 @@ def main():
                 time.sleep(0.005)
                 continue
 
-            # In-memory DINOv3 feature encoding (Zero Disk I/O)
-            phi_tensor = encoder.encode_frame(rgb)  # [384] tensor on device
-            phi_buffer.append(phi_tensor)
+            if use_fused:
+                action_norm_np, sim, is_ready = fused_engine.step(rgb)
+                if not is_ready:
+                    logger.info(f"Buffering temporal state: {len(fused_engine.phi_history) + 1}/4 frames...")
+                    stop_cmd = DriveCommand(0.0, 0.0, 0.0)
+                    if not args.stream:
+                        robot.send_command(stop_cmd)
+                    else:
+                        with cmd_lock:
+                            current_cmd = stop_cmd
+                            last_cmd_time = time.time()
+                    time.sleep(control_period)
+                    continue
 
-            # Warm-up / Re-buffering: Wait for 4 frames to fill FIFO buffer
-            if len(phi_buffer) < 4:
-                logger.info(f"Buffering temporal state: {len(phi_buffer)}/4 frames...")
-                stop_cmd = DriveCommand(0.0, 0.0, 0.0)
-                if not args.stream:
-                    robot.send_command(stop_cmd)
-                else:
-                    with cmd_lock:
-                        current_cmd = stop_cmd
-                        last_cmd_time = time.time()
-                time.sleep(control_period)
-                continue
-
-            # If subgoal planner enabled, plan path once first frame embedding is available
-            if planner is not None and not planner_planned:
-                first_phi = phi_tensor.cpu().numpy()
-                target_phi = goal_phi.cpu().numpy()
-                planner.plan(first_phi, target_phi)
-                planner_planned = True
-
-            # Get active goal (either intermediate waypoint from visual graph or final goal)
-            if planner is not None:
-                subgoal_phi_np, is_final_subgoal = planner.get_current_subgoal(phi_tensor.cpu().numpy())
-                active_goal_batch = torch.tensor(subgoal_phi_np, dtype=torch.float32, device=device).unsqueeze(0)
+                action_norm = torch.from_numpy(action_norm_np).to(device)
+                action_phys = normalizer.denormalize(action_norm)
+                vx, vy, omega = action_phys.cpu().numpy()
             else:
-                active_goal_batch = goal_phi_batch
-                is_final_subgoal = True
+                # In-memory DINOv3 feature encoding (Zero Disk I/O)
+                phi_tensor = encoder.encode_frame(rgb)  # [384] tensor on device
+                phi_buffer.append(phi_tensor)
 
-            # Construct chronological 4-frame state: [phi_{t-3}, phi_{t-2}, phi_{t-1}, phi_{t0}] -> [1, 1536]
-            state = torch.cat(list(phi_buffer), dim=0).unsqueeze(0)
+                # Warm-up / Re-buffering: Wait for 4 frames to fill FIFO buffer
+                if len(phi_buffer) < 4:
+                    logger.info(f"Buffering temporal state: {len(phi_buffer)}/4 frames...")
+                    stop_cmd = DriveCommand(0.0, 0.0, 0.0)
+                    if not args.stream:
+                        robot.send_command(stop_cmd)
+                    else:
+                        with cmd_lock:
+                            current_cmd = stop_cmd
+                            last_cmd_time = time.time()
+                    time.sleep(control_period)
+                    continue
 
-            # Policy forward pass -> normalized action in [-1, 1]^3
-            with torch.inference_mode():
-                action_norm = actor(state, active_goal_batch)  # [1, 3]
+                # If subgoal planner enabled, plan path once first frame embedding is available
+                if planner is not None and not planner_planned:
+                    first_phi = phi_tensor.cpu().numpy()
+                    target_phi = goal_phi.cpu().numpy()
+                    planner.plan(first_phi, target_phi)
+                    planner_planned = True
 
-            # Inverse affine denormalization to physical velocities
-            action_phys = normalizer.denormalize(action_norm.squeeze(0))
-            vx, vy, omega = action_phys.cpu().numpy()
+                # Get active goal (either intermediate waypoint from visual graph or final goal)
+                if planner is not None:
+                    subgoal_phi_np, is_final_subgoal = planner.get_current_subgoal(phi_tensor.cpu().numpy())
+                    active_goal_batch = torch.tensor(subgoal_phi_np, dtype=torch.float32, device=device).unsqueeze(0)
+                else:
+                    active_goal_batch = goal_phi_batch
+                    is_final_subgoal = True
 
-            # Clamp denormalized velocities to exploration distribution
-            if args.clamp_explore:
-                vx = np.clip(vx, args.min_vx, args.max_vx)
-                vy = np.clip(vy, -args.max_vy, args.max_vy)
-                omega = np.clip(omega, -args.max_wz, args.max_wz)
+                # Construct chronological 4-frame state: [phi_{t-3}, phi_{t-2}, phi_{t-1}, phi_{t0}] -> [1, 1536]
+                state = torch.cat(list(phi_buffer), dim=0).unsqueeze(0)
 
-            # Cosine similarity to final goal (both unit L2 normalized)
-            sim = float(torch.dot(phi_tensor, goal_phi).item())
+                # Policy forward pass -> normalized action in [-1, 1]^3
+                with torch.inference_mode():
+                    action_norm = actor(state, active_goal_batch)  # [1, 3]
+
+                # Inverse affine denormalization to physical velocities
+                action_phys = normalizer.denormalize(action_norm.squeeze(0))
+                vx, vy, omega = action_phys.cpu().numpy()
+
+                # Cosine similarity to final goal (both unit L2 normalized)
+                sim = float(torch.dot(phi_tensor, goal_phi).item())
 
             # Goal arrival and stopping behavior
             if sim >= args.goal_threshold:
@@ -326,6 +395,8 @@ def main():
                 with cmd_lock:
                     current_cmd = DriveCommand(0.0, 0.0, 0.0)
                 robot.emergency_stop()
+                metrics_logger.end_episode(success=True, termination_reason="goal_reached", final_similarity=sim)
+                episode_completed = True
                 break
 
             # Smooth deceleration when entering goal approach zone [goal_threshold - 0.10, goal_threshold]
@@ -367,6 +438,20 @@ def main():
                     current_cmd = DriveCommand(v_linear=vx_cmd, v_lateral=vy_cmd, v_angular=omega_cmd)
                     last_cmd_time = time.time()
 
+            # Log telemetry for deployment metrics
+            pose = robot.get_pose() if hasattr(robot, "get_pose") else None
+            metrics_logger.log_step(
+                step=step,
+                similarity=sim,
+                cmd_vx=vx_cmd,
+                cmd_vy=vy_cmd,
+                cmd_wz=omega_cmd,
+                odom_x=pose.x if pose else None,
+                odom_y=pose.y if pose else None,
+                odom_yaw=pose.yaw if pose else None,
+                safety_blocked=is_safety_blocked,
+            )
+
             if step % 10 == 0:
                 block_tag = " | ⚠️ SAFETY BLOCKED" if is_safety_blocked else ""
                 logger.info(
@@ -383,8 +468,15 @@ def main():
             if elapsed < control_period:
                 time.sleep(control_period - elapsed)
 
+        if not episode_completed:
+            reason = "timeout" if step >= args.max_steps else "safety_abort"
+            logger.warning(f"Deployment ended without goal arrival ({reason}). Steps: {step}/{args.max_steps}")
+            metrics_logger.end_episode(success=False, termination_reason=reason, final_similarity=sim)
+
     except KeyboardInterrupt:
         logger.warning("Deployment interrupted by operator.")
+        if 'metrics_logger' in locals() and metrics_logger.active_episode is not None:
+            metrics_logger.end_episode(success=False, termination_reason="operator_interrupt", final_similarity=sim if 'sim' in locals() else 0.0)
     finally:
         logger.info("Shutting down deployment node. Sending emergency stop...")
         stream_active = False
