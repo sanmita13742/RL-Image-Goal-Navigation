@@ -112,7 +112,7 @@ class DeploymentMetricsLogger:
         max_steps: int = 1000,
         control_freq: float = 10.0,
         optimal_time_sec: Optional[float] = None,
-        goal_threshold: float = 0.75,
+        goal_threshold: float = 0.80,
         episode_id: Optional[str] = None,
     ) -> str:
         """

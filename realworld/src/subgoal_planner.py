@@ -42,7 +42,7 @@ class VisualGraphPlanner:
         k_neighbors: int = 8,
         min_connection_sim: float = 0.75,
         max_connection_dist_m: float = 2.5,
-        waypoint_advance_sim: float = 0.75,
+        waypoint_advance_sim: float = 0.80,
         subsample_stride: int = 3,
     ):
         """

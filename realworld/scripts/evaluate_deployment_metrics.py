@@ -53,7 +53,7 @@ def generate_mock_trials(logger_inst: DeploymentMetricsLogger, num_per_split: in
                 max_steps=cfg["max_s"],
                 control_freq=10.0,
                 optimal_time_sec=cfg["opt_time"],
-                goal_threshold=0.75,
+                goal_threshold=0.80,
                 episode_id=ep_id,
             )
 
@@ -61,7 +61,7 @@ def generate_mock_trials(logger_inst: DeploymentMetricsLogger, num_per_split: in
             if is_success:
                 actual_time = random.uniform(*cfg["time_range"])
                 steps = int(actual_time * 10)
-                final_sim = random.uniform(0.76, 0.88)
+                final_sim = random.uniform(0.81, 0.92)
                 reason = "goal_reached"
             else:
                 actual_time = cfg["max_s"] / 10.0

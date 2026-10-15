@@ -59,8 +59,8 @@ def parse_args():
     parser.add_argument("--angular-scale", type=float, default=0.80,
                         help="Angular speed scaling factor (0.0 to 1.0, default: 0.80)")
     parser.add_argument("--control-freq", type=float, default=10.0, help="Command publishing frequency in Hz")
-    parser.add_argument("--goal-threshold", type=float, default=0.75,
-                        help="Cosine similarity threshold for goal arrival (default: 0.75)")
+    parser.add_argument("--goal-threshold", type=float, default=0.80,
+                        help="Cosine similarity threshold for goal arrival (default: 0.80)")
     parser.add_argument("--max-action-age", type=float, default=1.20,
                         help="Maximum allowed action message age in seconds before watchdog triggers (default: 1.20s)")
     return parser.parse_args()
