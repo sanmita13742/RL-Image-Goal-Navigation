@@ -92,7 +92,9 @@ def parse_args():
     parser.add_argument("--speed-scale", type=float, default=0.30,
                         help="Linear speed scaling factor (0.0 to 1.0) for supervised trials (default: 0.30)")
     parser.add_argument("--angular-scale", type=float, default=None,
-                        help="Angular speed scaling factor (0.0 to 1.0, default: matches --speed-scale).")
+                        help="Angular speed scaling factor (0.0 to 1.0, default: 0.70 for responsive 4WS turning).")
+    parser.add_argument("--cmd-timeout", type=float, default=1.2,
+                        help="Watchdog timeout in seconds before zeroing streamer velocity (default: 1.2s, accommodates ~420ms model inference)")
     parser.add_argument("--stream", action="store_true", default=False,
                         help="Enable continuous background 10 Hz command streaming (default: False, synchronous per inference step)")
     parser.add_argument("--max-steps", type=int, default=1000, help="Maximum control steps")
@@ -210,10 +212,11 @@ def main():
     # 5. Initialize Action Normalizer
     normalizer = ActionNormalizer(device=str(device))
     speed_scale = max(0.05, min(1.0, args.speed_scale))
-    angular_scale = max(0.05, min(1.0, args.angular_scale if args.angular_scale is not None else speed_scale))
+    angular_scale = max(0.05, min(1.0, args.angular_scale if args.angular_scale is not None else 0.70))
     logger.info(
         f"Speed scaling: Linear={speed_scale * 100:.0f}% (Forward max: {1.8 * speed_scale:.2f} m/s) | "
         f"Angular={angular_scale * 100:.0f}% (Turn max: {1.5 * angular_scale:.2f} rad/s) | "
+        f"Watchdog Timeout={args.cmd_timeout:.1f}s | "
         f"Mode={'Continuous 10Hz Streamer' if args.stream else 'Synchronous (Per-inference direct)'}"
     )
 
@@ -280,7 +283,7 @@ def main():
                     with cmd_lock:
                         if is_safety_blocked:
                             cmd_to_send = DriveCommand(0.0, 0.0, 0.0)
-                        elif now - last_cmd_time > 0.4:
+                        elif now - last_cmd_time > args.cmd_timeout:
                             cmd_to_send = DriveCommand(0.0, 0.0, 0.0)
                         else:
                             cmd_to_send = current_cmd
@@ -481,6 +484,10 @@ def main():
                 vy_cmd = args.ema_alpha * vy_cmd + (1.0 - args.ema_alpha) * prev_cmd[1]
                 omega_cmd = args.ema_alpha * omega_cmd + (1.0 - args.ema_alpha) * prev_cmd[2]
             prev_cmd = (vx_cmd, vy_cmd, omega_cmd)
+
+            # Angular deadband: zero out tiny sub-degree/sec noise to avoid 4WS servo hunting
+            if abs(omega_cmd) < 0.02:
+                omega_cmd = 0.0
 
             # If safety gate reported block, suppress forward and lateral translation
             if is_safety_blocked:
