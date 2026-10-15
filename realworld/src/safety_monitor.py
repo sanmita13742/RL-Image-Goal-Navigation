@@ -52,6 +52,7 @@ class SafetyMonitor:
         camera_timeout_s: float = 2.0,
         odom_timeout_s: float = 2.0,
         lidar_timeout_s: float = 3.0,
+        require_odom: bool = False,
     ):
         self._robot = robot
         self._camera = camera
@@ -60,6 +61,7 @@ class SafetyMonitor:
         self._camera_timeout = camera_timeout_s
         self._odom_timeout = odom_timeout_s
         self._lidar_timeout = lidar_timeout_s
+        self._require_odom = require_odom
 
         self._armed = False
         self._lock = threading.Lock()
@@ -85,7 +87,7 @@ class SafetyMonitor:
             issues = []
             if not self._camera.has_frame:
                 issues.append("Camera: no frames received")
-            if not self._robot.odom_received:
+            if self._require_odom and not self._robot.odom_received:
                 issues.append("Odom: no messages received")
             if not self._lidar.has_scan:
                 issues.append("LiDAR: no scans received")
@@ -97,7 +99,7 @@ class SafetyMonitor:
                 issues.append(f"Camera: stale ({now - cam_time:.1f}s ago)")
 
             odom_time = self._robot.last_odom_time
-            if odom_time is not None and (now - odom_time) > self._odom_timeout:
+            if self._require_odom and odom_time is not None and (now - odom_time) > self._odom_timeout:
                 issues.append(f"Odom: stale ({now - odom_time:.1f}s ago)")
 
             lidar_time = self._lidar.last_scan_time
@@ -142,11 +144,12 @@ class SafetyMonitor:
             elapsed = "never" if cam_time is None else f"{now - cam_time:.1f}s"
             issues.append(f"Camera timeout (last: {elapsed})")
 
-        # Odom freshness
-        odom_time = self._robot.last_odom_time
-        if odom_time is None or (now - odom_time) > self._odom_timeout:
-            elapsed = "never" if odom_time is None else f"{now - odom_time:.1f}s"
-            issues.append(f"Odom timeout (last: {elapsed})")
+        # Odom freshness (if required)
+        if self._require_odom:
+            odom_time = self._robot.last_odom_time
+            if odom_time is None or (now - odom_time) > self._odom_timeout:
+                elapsed = "never" if odom_time is None else f"{now - odom_time:.1f}s"
+                issues.append(f"Odom timeout (last: {elapsed})")
 
         # LiDAR freshness
         lidar_time = self._lidar.last_scan_time

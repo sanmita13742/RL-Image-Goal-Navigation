@@ -121,6 +121,8 @@ def parse_args():
                         help="Enable topological visual graph subgoal planner")
     parser.add_argument("--dataset-dir", type=str, default=None,
                         help="Path to processed dataset directory for visual subgoal planner")
+    parser.add_argument("--require-odom", action="store_true", default=False,
+                        help="Strictly require /odom feed for arming (default: False, optional since MINav policy is pure vision)")
     return parser.parse_args()
 
 
@@ -249,6 +251,7 @@ def main():
             camera_timeout_s=3.0,
             odom_timeout_s=3.0,
             lidar_timeout_s=4.0,
+            require_odom=args.require_odom,
         )
 
         # Monitor Safety Gate block status
@@ -298,16 +301,17 @@ def main():
             time.sleep(0.1)
             now = time.time()
             cam_fresh = camera.has_frame and camera.last_frame_time is not None and (now - camera.last_frame_time) < 1.5
-            odom_fresh = robot.odom_received and robot.last_odom_time is not None and (now - robot.last_odom_time) < 2.0
             lidar_fresh = lidar.has_scan and lidar.last_scan_time is not None and (now - lidar.last_scan_time) < 2.0
+            odom_fresh = robot.odom_received and robot.last_odom_time is not None and (now - robot.last_odom_time) < 2.0
 
-            if cam_fresh and odom_fresh and lidar_fresh:
+            if cam_fresh and lidar_fresh and (odom_fresh or not args.require_odom):
                 sensors_ready = True
+                odom_status = f"live (age: {(now - robot.last_odom_time)*1000:.0f}ms)" if odom_fresh else "offline/optional (policy uses pure vision)"
                 logger.info(
-                    f"✓ All sensor feeds live & fresh: "
+                    f"✓ Required sensor feeds live & fresh: "
                     f"Camera={camera.frame_count} frames (age: {(now - camera.last_frame_time)*1000:.0f}ms), "
                     f"LiDAR={lidar.scan_count} scans (age: {(now - lidar.last_scan_time)*1000:.0f}ms), "
-                    f"Odom=live (age: {(now - robot.last_odom_time)*1000:.0f}ms)"
+                    f"Odom={odom_status}"
                 )
                 break
 
