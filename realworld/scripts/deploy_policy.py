@@ -91,8 +91,8 @@ def parse_args():
     parser.add_argument("--arm", action="store_true", help="ARM robot for real physical motion (default: DRY-RUN)")
     parser.add_argument("--speed-scale", type=float, default=0.30,
                         help="Linear speed scaling factor (0.0 to 1.0) for supervised trials (default: 0.30)")
-    parser.add_argument("--angular-scale", type=float, default=1.0,
-                        help="Angular speed scaling factor (0.0 to 1.5, default: 1.0 for sharp, decisive 4WS turning).")
+    parser.add_argument("--angular-scale", type=float, default=0.45,
+                        help="Angular speed scaling factor (default: 0.45, tuned for 2.4Hz visual servoing without FOV overshoot).")
     parser.add_argument("--lateral-scale", type=float, default=0.0,
                         help="Lateral speed scaling factor (0.0 to 1.0, default: 0.0 to prevent crabbing/slanting and enforce pure heading pivot turns).")
     parser.add_argument("--cmd-timeout", type=float, default=1.2,
@@ -115,10 +115,10 @@ def parse_args():
                         help="Clamp physical velocity commands to safe exploration bounds (default: True)")
     parser.add_argument("--no-clamp-explore", dest="clamp_explore", action="store_false",
                         help="Disable velocity clamping to exploration bounds")
-    parser.add_argument("--min-vx", type=float, default=0.0, help="Minimum linear speed (m/s, default: 0.0)")
+    parser.add_argument("--min-vx", type=float, default=0.10, help="Minimum linear speed to maintain rolling forward translation (m/s, default: 0.10)")
     parser.add_argument("--max-vx", type=float, default=0.6, help="Maximum linear speed (m/s, default: 0.6)")
     parser.add_argument("--max-vy", type=float, default=0.3, help="Maximum lateral speed (m/s, default: 0.3)")
-    parser.add_argument("--max-wz", type=float, default=1.5, help="Maximum angular speed (rad/s, default: 1.5)")
+    parser.add_argument("--max-wz", type=float, default=0.50, help="Maximum angular speed to prevent FOV spin-out (rad/s, default: 0.50)")
     parser.add_argument("--ema-alpha", type=float, default=0.85,
                         help="Exponential moving average alpha for velocity commands (1.0 = raw responsive, default: 0.85)")
     parser.add_argument("--subgoal-planner", action="store_true", default=False,
@@ -372,6 +372,8 @@ def main():
         episode_completed = False
         sim = 0.0
         is_final_subgoal = True
+        consecutive_turn_count = 0
+        consecutive_turn_dir = 0
         while step < args.max_steps and rclpy.ok():
             loop_start = time.time()
 
@@ -476,11 +478,9 @@ def main():
             vy_cmd = float(vy) * lateral_scale * decel_factor
             omega_cmd = float(omega) * angular_scale
 
-            # Turn-curvature modulation: when turning sharply, reduce forward drive
-            # so the 4WS chassis pivots cleanly into the turn instead of plowing in a wide arc.
-            turn_intensity = min(1.0, abs(omega_cmd) / 0.8)
-            turn_factor = max(0.40, 1.0 - 0.50 * turn_intensity)
-            vx_cmd = vx_cmd * turn_factor
+            # Maintain forward rolling floor during navigation: prevent robot from stalling into pure spin-in-place
+            if is_final_subgoal and sim < args.goal_threshold - 0.08:
+                vx_cmd = max(args.min_vx, vx_cmd)
 
             # Clamp scaled commands to exploration bounds
             if args.clamp_explore:
@@ -498,6 +498,28 @@ def main():
             # Angular deadband: zero out tiny sub-degree/sec noise to avoid 4WS servo hunting
             if abs(omega_cmd) < 0.02:
                 omega_cmd = 0.0
+
+            # Anti-spin limit-cycle breaker:
+            # If turning persistently in the same direction for >=5 steps while similarity is low (<0.45),
+            # damp rotation and pulse forward to clear optical rotational flow and acquire fresh visual perspective.
+            if abs(omega_cmd) > 0.10:
+                current_turn_dir = 1 if omega_cmd > 0 else -1
+                if current_turn_dir == consecutive_turn_dir:
+                    consecutive_turn_count += 1
+                else:
+                    consecutive_turn_dir = current_turn_dir
+                    consecutive_turn_count = 1
+            else:
+                consecutive_turn_count = 0
+                consecutive_turn_dir = 0
+
+            if consecutive_turn_count >= 5 and sim < 0.45:
+                logger.warning(
+                    f"Anti-spin guard activated: {consecutive_turn_count} consecutive turn steps (sim={sim:.3f}). "
+                    f"Damping rotation and pulsing forward to re-anchor visual perspective."
+                )
+                omega_cmd = omega_cmd * 0.20  # Heavily dampen spinning
+                vx_cmd = max(0.18, vx_cmd)    # Drive forward to clear rotational history
 
             # If safety gate reported block, suppress forward and lateral translation
             if is_safety_blocked:
