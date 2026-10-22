@@ -1,26 +1,44 @@
 # Python
 __pycache__/
-*.pyc
-*.pyo
+*.py[cod]
+*$py.class
+.pytest_cache/
 
-# Editor
+# Virtual environments
+minav_env/
+.venv/
+venv/
+
+# Editor & OS
 .vscode/
 .idea/
+*.swp
+*~
+.DS_Store
 
-# Datasets & Logs
+# Archive of legacy & one-time use files (not tracked)
+archive/
+
+# Downloads & Caches
+*.crdownload
+
+# MuJoCo runtime logs & temp data
+MJDATA.TXT
+MUJOCO_LOG.TXT
+
+# Datasets & Outputs (runtime generated)
 /dataset/
 /data/
 /runs/
 /analysis_output*/
-comparison/
-whitenoise/
-*.png
-*.jpg
+output-realworld/
+results/
+deployment_metrics_logs/
 *.csv
 *.mp4
 *.log
 
-# Models & Data Files
+# Models & Large Data Files
 *.pt
 *.npy
 *.parquet
