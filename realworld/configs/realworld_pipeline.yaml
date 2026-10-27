@@ -39,7 +39,7 @@ lidar:
   projection_width: 640       # output depth image width
   projection_height: 60       # output depth image height (matches MuJoCo lidar_cam)
   max_range: 10.0             # metres — points beyond this are clipped
-  min_range: 0.35             # metres — filter near-field noise (chassis/ground)
+  min_range: 0.45             # metres — filter near-field chassis/bumper/camera reflections (chassis front edge is ~0.37m)
   height_min: -0.15            # metres — relative to LiDAR, keep objects >15cm off ground
   height_max: 1.0             # metres — relative to base_link, filter ceiling
   fov_deg: 360.0              # horizontal field of view (RoboSense is 360°)
@@ -58,12 +58,15 @@ exploration:
   vy_range: [-0.3, 0.3]      # m/s — conservative crab walk (Ranger-specific)
   wz_range: [-1.0, 1.0]      # rad/s — conservative turning (Ranger-specific)
   # LiDAR safety gate — Ranger-specific engineering parameters
-  safety_gate_min_depth: 0.55 # metres — must be >0.35m (LiDAR min_range blindspot)
+  safety_gate_min_depth: 0.55 # metres — must be >0.45m (LiDAR min_range blindspot)
   safety_gate_min_pixels: 75  # min near-range pixels per sector to confirm obstacle
 
   # Smart Exploration Enhancements (active when mode: smart or --mode smart)
   smart:
     action_shaping: true        # Strategy 1: Pre-emptively shape pink noise away from walls
+    obstacle_clearance_threshold: 0.65 # metres (slow/steer away threshold)
+    tight_space_depth: 0.50            # metres (reverse evasion threshold)
+    sector_min_pixels_distance: 25     # min near pixels to trigger distance shaping (noise filter)
     adaptive_speed: true        # Strategy 2: Fast in open corridors, slow crawl in tight zones
     speed_min_dist: 0.65        # metres (crawl speed threshold)
     speed_max_dist: 2.0         # metres (full speed threshold)

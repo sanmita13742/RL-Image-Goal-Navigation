@@ -37,12 +37,13 @@ class SmartPolicyConfig:
 
     # Strategy 1: LiDAR-Aware Action Shaping
     action_shaping_enabled: bool = True
-    obstacle_clearance_threshold: float = 0.60  # metres
+    obstacle_clearance_threshold: float = 0.65  # metres
     wall_danger_depth: float = 0.55             # metres
+    tight_space_depth: float = 0.50             # metres (distance below which reverse evasion triggers)
     sector_min_pixels: int = 75                 # min near pixels to confirm obstacle
     # Minimum pixel count for the distance-only shaping path.
     # Prevents single noisy LiDAR returns from triggering jittery shaping.
-    sector_min_pixels_distance: int = 5
+    sector_min_pixels_distance: int = 25
     evasion_reverse_speed: float = -0.15        # m/s reverse when tight front
     evasion_turn_speed: float = 0.8             # rad/s turn when avoiding obstacle
 
@@ -254,7 +255,9 @@ class LidarAwarePolicy:
         # Check if interval has elapsed to start new rotation
         if (current_time - self._last_panoramic_time) >= self.config.panoramic_interval_s:
             # Only trigger rotation if we are not in severe collision danger
-            if self._front_min >= 0.40 and self._left_min >= 0.35 and self._right_min >= 0.35:
+            if (self._front_min >= self.config.tight_space_depth
+                and self._left_min >= self.config.wall_danger_depth
+                and self._right_min >= self.config.wall_danger_depth):
                 self._panoramic_active = True
                 self._panoramic_start_time = current_time
                 logger.info(
@@ -335,7 +338,7 @@ class LidarAwarePolicy:
             # If front is blocked, avoid driving into obstacle
             if front_blocked:
                 shaped = True
-                if self._front_min < 0.40:
+                if self._front_min < self.config.tight_space_depth:
                     # Critical tight space: back up gently
                     vx = self.config.evasion_reverse_speed
                 else:

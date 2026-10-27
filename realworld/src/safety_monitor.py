@@ -52,7 +52,7 @@ class SafetyMonitor:
         camera_timeout_s: float = 2.0,
         odom_timeout_s: float = 2.0,
         lidar_timeout_s: float = 3.0,
-        require_odom: bool = False,
+        require_odom: bool = True,
     ):
         self._robot = robot
         self._camera = camera
