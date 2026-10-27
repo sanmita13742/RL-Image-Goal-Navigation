@@ -167,15 +167,15 @@ def main():
 
         # Build PolicyConfig from YAML
         seed = config.get("run", {}).get("seed", None)
-        vx_range = tuple(explore_cfg.get("vx_range", [0.0, 0.6]))
-        vy_range = tuple(explore_cfg.get("vy_range", [-0.3, 0.3]))
-        wz_range = tuple(explore_cfg.get("wz_range", [-1.0, 1.0]))
+        vx_range = tuple(explore_cfg.get("vx_range", [0.20, 0.55]))
+        vy_range = tuple(explore_cfg.get("vy_range", [0.0, 0.0]))
+        wz_range = tuple(explore_cfg.get("wz_range", [-0.75, 0.75]))
 
         policy_config = PolicyConfig(
             beta=float(explore_cfg.get("pink_noise_beta", 1)),
-            policy_freq_hz=float(explore_cfg.get("policy_freq_hz", 2.0)),
+            policy_freq_hz=float(explore_cfg.get("policy_freq_hz", 1.0)),
             control_freq_hz=float(explore_cfg.get("control_freq_hz", 20.0)),
-            smoothing_alpha=float(explore_cfg.get("smoothing_alpha", 0.2)),
+            smoothing_alpha=float(explore_cfg.get("smoothing_alpha", 0.15)),
             vx_range=vx_range,
             vy_range=vy_range,
             wz_range=wz_range,

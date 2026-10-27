@@ -48,15 +48,15 @@ exploration:
   mode: smart                 # "vanilla" (MINav-faithful) | "smart" (enhanced exploration)
   duration_minutes: 120       # MINav: ~2 hours
   control_freq_hz: 20         # MINav: 20 Hz velocity smoothing
-  policy_freq_hz: 2           # MINav: 2 Hz action sampling from pink noise
-  smoothing_alpha: 0.2        # LERP blending factor (implementation parameter, not from MINav)
+  policy_freq_hz: 1           # 1.0 Hz action sampling (smooth arcs, holds heading for 1.0s)
+  smoothing_alpha: 0.15       # LERP blending factor (smoother velocity interpolation)
   segment_size: 1000          # Implementation choice: storage boundary only
   output_subdir: exploration
   pink_noise_beta: 1          # MINav: β=1 pink noise
-  # Ranger-specific safe indoor exploration ranges
-  vx_range: [0.0, 0.6]       # m/s — forward only (MINav maps surge to [0, vx_max])
-  vy_range: [-0.3, 0.3]      # m/s — conservative crab walk (Ranger-specific)
-  wz_range: [-1.0, 1.0]      # rad/s — conservative turning (Ranger-specific)
+  # Ranger Dual-Ackermann (unicycle) safe exploration ranges:
+  vx_range: [0.20, 0.55]      # m/s — continuous forward rolling momentum
+  vy_range: [0.0, 0.0]        # m/s — 0.0 = Dual Ackermann mode (car-like continuous steering, no wheel re-orient halts)
+  wz_range: [-0.75, 0.75]     # rad/s — gentle continuous turning curves
   # LiDAR safety gate — Ranger-specific engineering parameters
   safety_gate_min_depth: 0.55 # metres — must be >0.45m (LiDAR min_range blindspot)
   safety_gate_min_pixels: 75  # min near-range pixels per sector to confirm obstacle
