@@ -45,7 +45,7 @@ lidar:
   fov_deg: 360.0              # horizontal field of view (RoboSense is 360°)
 
 exploration:
-  mode: smart                 # "vanilla" (MINav-faithful) | "smart" (enhanced exploration)
+  mode: vanilla               # "vanilla" (MINav-faithful) | "smart" (enhanced exploration)
   duration_minutes: 120       # MINav: ~2 hours
   control_freq_hz: 20         # MINav: 20 Hz velocity smoothing
   policy_freq_hz: 1           # 1.0 Hz action sampling (smooth arcs, holds heading for 1.0s)

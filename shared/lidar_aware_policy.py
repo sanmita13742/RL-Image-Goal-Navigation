@@ -222,6 +222,13 @@ class LidarAwarePolicy:
                 score = 999999  # Penalize outside map boundary
             visit_scores.append(score)
 
+        min_score = min(visit_scores)
+        max_score = max(visit_scores)
+        # If all probe cells have the same score (e.g. all 0 unvisited at startup),
+        # do not introduce an arbitrary direction bias.
+        if min_score == max_score or max_score == 0:
+            return 0.0
+
         least_idx = int(np.argmin(visit_scores))
         best_angle = angles[least_idx]
 
@@ -341,15 +348,15 @@ class LidarAwarePolicy:
                 if self._front_min < self.config.tight_space_depth:
                     # Critical tight space: back up gently
                     vx = self.config.evasion_reverse_speed
+                    if self._left_min > self._right_min:
+                        wz = max(wz, self.config.evasion_turn_speed)
+                    else:
+                        wz = min(wz, -self.config.evasion_turn_speed)
                 else:
-                    # Narrow clearance: stop forward surge
-                    vx = min(vx, 0.0)
-
-                # Steer toward direction of greatest clearance
-                if self._left_min > self._right_min:
-                    wz = max(wz, self.config.evasion_turn_speed)
-                else:
-                    wz = min(wz, -self.config.evasion_turn_speed)
+                    # Narrow clearance: reduce surge to crawl and steer away smoothly
+                    vx = max(0.10, vx * 0.4)
+                    turn_dir = 1.0 if self._left_min >= self._right_min else -1.0
+                    wz = turn_dir * max(abs(wz), 0.40)
 
             # Clamp lateral crab-walk away from side obstacles
             if left_blocked:
