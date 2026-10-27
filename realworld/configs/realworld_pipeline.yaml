@@ -45,6 +45,7 @@ lidar:
   fov_deg: 360.0              # horizontal field of view (RoboSense is 360°)
 
 exploration:
+  mode: smart                 # "vanilla" (MINav-faithful) | "smart" (enhanced exploration)
   duration_minutes: 120       # MINav: ~2 hours
   control_freq_hz: 20         # MINav: 20 Hz velocity smoothing
   policy_freq_hz: 2           # MINav: 2 Hz action sampling from pink noise
@@ -59,6 +60,26 @@ exploration:
   # LiDAR safety gate — Ranger-specific engineering parameters
   safety_gate_min_depth: 0.55 # metres — must be >0.35m (LiDAR min_range blindspot)
   safety_gate_min_pixels: 75  # min near-range pixels per sector to confirm obstacle
+
+  # Smart Exploration Enhancements (active when mode: smart or --mode smart)
+  smart:
+    action_shaping: true        # Strategy 1: Pre-emptively shape pink noise away from walls
+    adaptive_speed: true        # Strategy 2: Fast in open corridors, slow crawl in tight zones
+    speed_min_dist: 0.65        # metres (crawl speed threshold)
+    speed_max_dist: 2.0         # metres (full speed threshold)
+    speed_min_scale: 0.20       # crawl speed fraction (0.2x)
+    speed_max_scale: 1.00       # full speed fraction (1.0x)
+    wz_tight_boost: 1.30        # yaw rotation boost in tight quarters
+    panoramic_rotations: false  # Strategy 3: DEFERRED — zero-displacement frames harm hindsight relabeling
+    panoramic_interval_s: 180.0 # seconds between injections (3 min)
+    panoramic_duration_s: 10.5  # duration (~360 deg at 0.6 rad/s)
+    panoramic_speed: 0.60       # rad/s rotation speed
+    lidar_observation: false    # Strategy 4: DEFERRED — requires full pipeline surgery (train/export/deploy)
+    coverage_nudge: true        # Strategy 5: Lightweight 2D visit grid with angular nudge
+    coverage_grid_size: [50, 50]
+    coverage_map_meters: 16.0
+    coverage_nudge_scale: 0.25  # max rad/s angular bias
+
 
 
 safety:

@@ -54,6 +54,7 @@ def run_offline_tests() -> bool:
         ("test_cmd_vel_dryrun.py", "Command Velocity Dry-Run Logic"),
         ("test_fused_pipeline.py", "Fused ONNX/OpenVINO Pipeline"),
         ("test_deployment_metrics.py", "Deployment Metrics & Tables"),
+        ("test_smart_exploration.py", "Smart Exploration & Switching"),
     ]
     
     all_passed = True

@@ -38,7 +38,9 @@ from realworld.src.ros2_lidar import ROS2LiDAR
 from realworld.src.safety_monitor import SafetyMonitor
 from realworld.src.data_recorder import DataRecorder
 from realworld.src.exploration_runner import ExplorationRunner
+from realworld.src.smart_exploration_runner import SmartExplorationRunner
 from shared.pink_uniform_policy import PolicyConfig
+from shared.lidar_aware_policy import SmartPolicyConfig
 
 
 def setup_logging(run_dir: Path) -> None:
@@ -66,6 +68,8 @@ def main():
                         help="Run a 30-second smoke test (dry-run)")
     parser.add_argument("--duration", type=float, default=None,
                         help="Override exploration duration in minutes (e.g., 2.0 for a short physical test)")
+    parser.add_argument("--mode", type=str, default=None, choices=["vanilla", "smart"],
+                        help="Exploration mode: vanilla (pure MINav pink noise) or smart (obstacle-aware + adaptive speed + panoramic + coverage)")
     args = parser.parse_args()
 
     # Load config
@@ -178,17 +182,58 @@ def main():
             seed=seed,
         )
 
-        runner = ExplorationRunner(
-            robot=robot,
-            camera=camera,
-            lidar=lidar,
-            safety=safety,
-            recorder=recorder,
-            policy_config=policy_config,
-            duration_minutes=duration_minutes,
-            safety_gate_min_depth=float(explore_cfg.get("safety_gate_min_depth", 0.5)),
-            safety_gate_min_pixels=int(explore_cfg.get("safety_gate_min_pixels", 75)),
-        )
+        mode = args.mode or explore_cfg.get("mode", "vanilla")
+        safety_gate_min_depth = float(explore_cfg.get("safety_gate_min_depth", 0.55))
+        safety_gate_min_pixels = int(explore_cfg.get("safety_gate_min_pixels", 75))
+
+        if mode == "smart":
+            smart_cfg_dict = explore_cfg.get("smart", {})
+            smart_config = SmartPolicyConfig(
+                action_shaping_enabled=bool(smart_cfg_dict.get("action_shaping", True)),
+                adaptive_speed_enabled=bool(smart_cfg_dict.get("adaptive_speed", True)),
+                speed_min_dist=float(smart_cfg_dict.get("speed_min_dist", 0.65)),
+                speed_max_dist=float(smart_cfg_dict.get("speed_max_dist", 2.0)),
+                speed_min_scale=float(smart_cfg_dict.get("speed_min_scale", 0.2)),
+                speed_max_scale=float(smart_cfg_dict.get("speed_max_scale", 1.0)),
+                wz_tight_boost=float(smart_cfg_dict.get("wz_tight_boost", 1.3)),
+                panoramic_rotations_enabled=bool(smart_cfg_dict.get("panoramic_rotations", True)),
+                panoramic_interval_s=float(smart_cfg_dict.get("panoramic_interval_s", 180.0)),
+                panoramic_duration_s=float(smart_cfg_dict.get("panoramic_duration_s", 10.5)),
+                panoramic_speed=float(smart_cfg_dict.get("panoramic_speed", 0.6)),
+                coverage_nudge_enabled=bool(smart_cfg_dict.get("coverage_nudge", True)),
+                coverage_grid_size=tuple(smart_cfg_dict.get("coverage_grid_size", [50, 50])),
+                coverage_map_meters=float(smart_cfg_dict.get("coverage_map_meters", 16.0)),
+                coverage_nudge_scale=float(smart_cfg_dict.get("coverage_nudge_scale", 0.25)),
+            )
+            record_lidar = bool(smart_cfg_dict.get("lidar_observation", True))
+
+            logger.info("Initializing SMART exploration runner (Action shaping + Adaptive speed + Coverage nudge)")
+            runner = SmartExplorationRunner(
+                robot=robot,
+                camera=camera,
+                lidar=lidar,
+                safety=safety,
+                recorder=recorder,
+                policy_config=policy_config,
+                smart_config=smart_config,
+                record_lidar_scan=record_lidar,
+                duration_minutes=duration_minutes,
+                safety_gate_min_depth=safety_gate_min_depth,
+                safety_gate_min_pixels=safety_gate_min_pixels,
+            )
+        else:
+            logger.info("Initializing VANILLA exploration runner (Pure MINav pink uniform noise)")
+            runner = ExplorationRunner(
+                robot=robot,
+                camera=camera,
+                lidar=lidar,
+                safety=safety,
+                recorder=recorder,
+                policy_config=policy_config,
+                duration_minutes=duration_minutes,
+                safety_gate_min_depth=safety_gate_min_depth,
+                safety_gate_min_pixels=safety_gate_min_pixels,
+            )
 
         # Spin all ROS 2 nodes in a background thread so callbacks
         # (camera, odom, lidar) fire continuously during the control loop.

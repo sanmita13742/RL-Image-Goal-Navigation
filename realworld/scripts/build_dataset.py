@@ -17,6 +17,7 @@ import sys
 import argparse
 import yaml
 import numpy as np
+import pandas as pd
 from pathlib import Path
 
 # Project root
@@ -131,6 +132,26 @@ def main():
         "ssd_threshold": h_cfg.get("ssd_threshold", 0.02),
     }
     save_embeddings(dinov3_dir, phi_vectors, ssd_scores, valid_goals_mask, frame_index, cfg_meta)
+
+    # Optional Strategy 4: Aggregate 1D LiDAR range scans if recorded
+    seg_dirs = sorted(
+        [d for d in session_dir.iterdir() if d.is_dir() and d.name.startswith("segment_")],
+        key=lambda d: int(d.name.split("_")[1])
+    )
+    lidar_scans_list = []
+    for sd in seg_dirs:
+        lpath = sd / "lidar_scans.npy"
+        if lpath.exists():
+            lidar_scans_list.append(np.load(lpath))
+
+    if lidar_scans_list:
+        lidar_vectors = np.concatenate(lidar_scans_list, axis=0)
+        if max_frames:
+            lidar_vectors = lidar_vectors[:max_frames]
+        lidar_dir = out_dir / "lidar"
+        lidar_dir.mkdir(parents=True, exist_ok=True)
+        np.save(lidar_dir / "lidar_vectors.npy", lidar_vectors)
+        print(f"  ✓ Aggregated {len(lidar_vectors):,} 1D LiDAR scans -> {lidar_dir / 'lidar_vectors.npy'}")
 
     # ── Phase 3: Build goal set ──
     print("\n[3/5] Building valid goal set...")

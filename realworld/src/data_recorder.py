@@ -71,6 +71,7 @@ class DataRecorder:
         self._csv_file = None
         self._csv_writer = None
 
+        self._current_seg_scans: list[np.ndarray] = []
         self._start_time: Optional[float] = None
         self._is_open = False
 
@@ -127,9 +128,14 @@ class DataRecorder:
             "safety_blocked", "obstacle_distance"
         ])
         self._seg_step = 0
+        self._current_seg_scans = []
 
     def _close_segment(self) -> None:
-        """Close the current segment CSV file."""
+        """Close the current segment CSV file and flush any LiDAR scans."""
+        if self._current_seg_scans and self._seg_dir is not None:
+            np.save(self._seg_dir / "lidar_scans.npy", np.array(self._current_seg_scans, dtype=np.float32))
+            self._current_seg_scans = []
+
         if self._csv_file is not None:
             self._csv_file.close()
             self._csv_file = None
@@ -149,6 +155,7 @@ class DataRecorder:
         obstacle_distance: float = float('nan'),
         relevant_point_count: int = 0,
         cloud_age: float = float('nan'),
+        lidar_scan: Optional[np.ndarray] = None,
     ) -> int:
         """Record one exploration step by pushing to a background queue.
 
@@ -177,6 +184,8 @@ class DataRecorder:
             Number of LiDAR points in the safety corridor.
         cloud_age : float
             Age of the LiDAR point cloud (seconds).
+        lidar_scan : np.ndarray, optional
+            1D LiDAR range scan vector (e.g. 72 bins) for Strategy 4.
         """
         if not self._is_open:
             raise RuntimeError("DataRecorder is not open. Call open() first.")
@@ -186,6 +195,7 @@ class DataRecorder:
                 rgb_frame, cmd, pos_x, pos_y, pos_z, yaw, wall_time,
                 executed_cmd, safety_blocked,
                 target_cmd, obstacle_distance, relevant_point_count, cloud_age,
+                lidar_scan,
             ))
         except queue.Full:
             logger.error("DataRecorder queue is full! Dropping frame!")
@@ -202,8 +212,14 @@ class DataRecorder:
                 continue
 
             # Unpack — handle legacy (8-tuple), old extended (12-tuple),
-            # and current full format (13-tuple with pos_z)
-            if len(item) == 13:
+            # 13-tuple with pos_z, and 14-tuple with lidar_scan
+            lidar_scan = None
+            if len(item) == 14:
+                (rgb_frame, cmd, pos_x, pos_y, pos_z, yaw, wall_time,
+                 executed_cmd, safety_blocked,
+                 target_cmd, obstacle_distance, relevant_point_count, cloud_age,
+                 lidar_scan) = item
+            elif len(item) == 13:
                 (rgb_frame, cmd, pos_x, pos_y, pos_z, yaw, wall_time,
                  executed_cmd, safety_blocked,
                  target_cmd, obstacle_distance, relevant_point_count, cloud_age) = item
@@ -219,6 +235,9 @@ class DataRecorder:
                 obstacle_distance = float('nan')
                 relevant_point_count = 0
                 cloud_age = float('nan')
+
+            if lidar_scan is not None:
+                self._current_seg_scans.append(lidar_scan)
             
             # Roll to new segment if needed
             if self._seg_step >= self.segment_size:

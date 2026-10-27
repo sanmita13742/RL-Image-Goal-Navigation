@@ -126,14 +126,15 @@ class ExplorationRunner:
         right_px = int((right_sector < obstacle_threshold).sum())
         left_px = int((left_sector < obstacle_threshold).sum())
 
-        import time
         if not hasattr(self, '_last_debug_time') or time.time() - self._last_debug_time > 0.5:
             f_min = front_sector.min() if front_sector.size > 0 else 10.0
             r_min = right_sector.min() if right_sector.size > 0 else 10.0
             l_min = left_sector.min() if left_sector.size > 0 else 10.0
-            print(f"\n--- LiDAR Safety Gate Debug ---")
-            print(f"Min Depths  : F={f_min:.2f}m, R={r_min:.2f}m, L={l_min:.2f}m")
-            print(f"Danger Pxls : F={front_px}, R={right_px}, L={left_px}  (Req >= {self._gate_min_pixels} px < {obstacle_threshold}m)")
+            logger.debug(
+                f"Safety gate: F={f_min:.2f}m R={r_min:.2f}m L={l_min:.2f}m | "
+                f"Danger px: F={front_px} R={right_px} L={left_px} "
+                f"(req>={self._gate_min_pixels}px <{obstacle_threshold}m)"
+            )
             self._last_debug_time = time.time()
 
         safe_vx = cmd.v_linear
